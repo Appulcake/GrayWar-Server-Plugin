@@ -77,8 +77,6 @@ public class GrpcClientManager
                 
                 while (!token.IsCancellationRequested)
                 {
-                    // Note: It is highly recommended to pass the cancellation token here 
-                    // so you don't get stuck waiting forever during app shutdown.
                     await channel.WaitForStateChangedAsync(lastState);
                     lastState = channel.State;
                     
