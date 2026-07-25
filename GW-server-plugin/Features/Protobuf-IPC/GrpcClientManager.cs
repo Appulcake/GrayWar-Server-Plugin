@@ -21,6 +21,7 @@ namespace GW_server_plugin.Features.Protobuf_IPC;
 /// </summary>
 public class GrpcClientManager
 {
+    // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
     private readonly ConfigEntry<string> _serverName;
     private readonly ConfigEntry<string> _centralHost;
     private readonly ConfigEntry<uint> _centralPort;
