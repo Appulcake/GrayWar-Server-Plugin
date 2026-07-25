@@ -20,7 +20,7 @@ using Steamworks;
 namespace GW_server_plugin;
 
 /// <summary>
-/// Main plugin class for the plugin
+/// Main plugin class
 /// </summary>
 [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
 public class GwServerPlugin : BaseUnityPlugin
@@ -87,8 +87,6 @@ public class GwServerPlugin : BaseUnityPlugin
         Logger.LogInfo($"Loading {PluginInfo.PLUGIN_NAME} v{PluginInfo.PLUGIN_VERSION}...");
         
         // TimeService.Initialize();
-
-        RestartWarningService.ScheduleWarnings();
         
         PatchAll();
         
@@ -122,6 +120,7 @@ public class GwServerPlugin : BaseUnityPlugin
         PlayerEvents.PlayerLeft += _ => MissionBalance.CheckAndApplyBalance();
         PlayerEvents.PlayerJoined += OnPlayerJoin;
         PlayerEvents.PlayerJoined += MissionBalanceService.OnPlayerJoin;
+        PlayerEvents.PlayerJoined += _ => RestartService.CancelRestart();
         PlayerEvents.PlayerJoinedFaction += OnPlayerJoinFaction;
         PlayerEvents.PlayerJoinedFaction += (_, _) => MissionBalance.CheckAndApplyBalance();
 
