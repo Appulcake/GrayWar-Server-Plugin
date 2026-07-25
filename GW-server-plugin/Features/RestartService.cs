@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using BepInEx.Configuration;
 using GW_server_plugin.Helpers;
 
-namespace GW_server_plugin.Features.CommandUtils;
+namespace GW_server_plugin.Features;
 
 /// <summary>
 ///     Manages the timely restarting of this server for minimal impact.
@@ -135,6 +135,8 @@ public static class RestartService
         if (!_enableForceRestart.Value) return;
         if (DateTime.Now.Subtract(GwServerPlugin.ServerStartTime).Hours < _forceRestartMaxInterval.Value) return;
         GwServerPlugin.Logger.LogInfo("AUTO-RESTARTING SERVER");
+        ChatService.SendChatMessageAsServer(
+            "This server has been running for 24 hours. To keep everything running smoothly, it will restart after this mission ends");
         AwaitingRestart = true;
     }
 }
