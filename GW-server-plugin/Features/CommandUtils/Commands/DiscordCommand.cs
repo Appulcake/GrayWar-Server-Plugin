@@ -8,11 +8,22 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 /// <summary>
 /// Gives instructions on how to join the discord server
 /// </summary>
-/// <param name="config"></param>
 [AutoCommand]
-public class DiscordCommand(ConfigFile config): PermissionConfigurableCommand(config), IGameCommand
+public class DiscordCommand: PermissionConfigurableCommand, IGameCommand
 {
-
+    /// <summary>
+    ///     Default builder for <see cref="DiscordCommand"/>
+    /// </summary>
+    /// <param name="config"></param>
+    public DiscordCommand(ConfigFile config) : base(config)
+    {
+        _joinCode = config.Bind("Discord Command", "JoinCode", "zfMMZD4kHE");
+        _url = config.Bind("Discord Command", "URL", "graywar.no");
+    }
+    
+    private readonly ConfigEntry<string> _joinCode;
+    private readonly ConfigEntry<string> _url;
+    
     /// <inheritdoc />
     public override string Name => "discord";
 
@@ -28,7 +39,7 @@ public class DiscordCommand(ConfigFile config): PermissionConfigurableCommand(co
     /// <inheritdoc />
     public UniTask<(bool success, string? response)> Execute(Player player, string[] args)
     {
-        return UniTask.FromResult<(bool, string?)>((true, "Discord join code: zfMMZD4kHE \nor go to graywar.no"));
+        return UniTask.FromResult<(bool, string?)>((true, $"Discord join code: {_joinCode.Value} \nor go to {_url.Value}"));
     }
     
     /// <inheritdoc />
