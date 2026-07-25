@@ -51,10 +51,8 @@ internal class MissionNameFix
         name = null;
         if (!SteamWorkshop.TryGetInstallFolder(workshopId, out var folder))
         {
-            GwServerPlugin.Logger.LogDebug($"returning: {folder}");
             return false;
         }        
-        GwServerPlugin.Logger.LogDebug($"1: {folder}");
         var data = ModLoader.ReadMetaData<MissionGroup.MissionMetaData>(workshopId, folder!);
         name = data?.FileName;
         return name != null;
@@ -72,8 +70,7 @@ internal class MissionNameFix
         if (!SteamWorkshop.TryGetInstallFolder(workshopIDTyped, out var folder))
         {
             return (false, null);
-        }        
-        GwServerPlugin.Logger.LogDebug($"1: {folder}");
+        }
         var data = ModLoader.ReadMetaData<MissionGroup.MissionMetaData>(workshopIDTyped, folder!);
         var name = data?.FileName;
         return (name != null, name);
