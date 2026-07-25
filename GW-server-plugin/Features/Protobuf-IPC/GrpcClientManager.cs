@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BepInEx.Configuration;
 using Com.Graywar.NoServerManager.Proto;
@@ -24,6 +24,9 @@ public class GrpcClientManager
     private readonly ConfigEntry<string> _serverName;
     private readonly ConfigEntry<string> _centralHost;
     private readonly ConfigEntry<uint> _centralPort;
+    private readonly ChannelCredentials _sslCredentials;
+    
+    private CancellationTokenSource? _monitorCts;
     
     internal EdgeAgentService.EdgeAgentServiceClient? Client;
     internal IClientStreamWriter<ChatLog>? ChatLogStream;
@@ -41,24 +44,92 @@ public class GrpcClientManager
             "Hostname or IP of the manager");
         _centralPort = config.Bind(PluginConfig.RpcSection, "central port", 50051u,
             new ConfigDescription("Port of the manager", new AcceptableValueRange<uint>(0, 65535)));
-        if (enable.Value)
-            InitializeGrpc();
-    }
-    
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <returns></returns>
-    private void InitializeGrpc()
-    {
-        ChannelCredentials creds = new SslCredentials(
+        _sslCredentials = new SslCredentials(
             File.ReadAllText("CA/ca.crt"),
             new KeyCertificatePair(
                 File.ReadAllText($"CA/{_serverName.Value}.crt"),
                 File.ReadAllText($"CA/{_serverName.Value}.key")
             )
         );
-        var channel = new Channel(_centralHost.Value, Convert.ToInt32(_centralPort.Value), creds);
+        if (enable.Value)
+            ConnectAndMonitor();
+    }
+    
+    private async void ConnectAndMonitor()
+    {
+        try
+        {
+            _monitorCts?.Cancel();
+            _monitorCts = new CancellationTokenSource();
+            var token = _monitorCts.Token;
+            
+            var channel = new Channel(_centralHost.Value, Convert.ToInt32(_centralPort.Value), _sslCredentials);
+            Connect(channel);
+            var lastState = channel.State;
+            
+            while (!token.IsCancellationRequested)
+            {
+                await channel.WaitForStateChangedAsync(lastState);
+                lastState = channel.State;
+                
+                GwServerPlugin.Logger.LogDebug($"gRPC Channel state changed to: {lastState}");
+                
+                
+                while (!token.IsCancellationRequested)
+                {
+                    // Note: It is highly recommended to pass the cancellation token here 
+                    // so you don't get stuck waiting forever during app shutdown.
+                    await channel.WaitForStateChangedAsync(lastState);
+                    lastState = channel.State;
+                    
+                    GwServerPlugin.Logger.LogDebug($"gRPC Channel state changed to: {lastState}");
+                    
+                    switch (lastState)
+                    {
+                        case ChannelState.Idle:
+                            GwServerPlugin.Logger.LogInfo(
+                                "gRPC Channel is Idle. Forcing connection attempt to wake it up...");
+                            _ = channel.ConnectAsync();
+                            break;
+                        
+                        case ChannelState.Connecting:
+                            GwServerPlugin.Logger.LogDebug("Channel is attempting to connect...");
+                            break;
+                        
+                        case ChannelState.TransientFailure:
+                            GwServerPlugin.Logger.LogWarning(
+                                "Connection lost or failed. gRPC will automatically backoff and retry.");
+                            break;
+                        
+                        case ChannelState.Ready:
+                            GwServerPlugin.Logger.LogInfo("Channel is Ready! Establishing streams...");
+                            Connect(channel);
+                            break;
+                        case ChannelState.Shutdown:
+                            GwServerPlugin.Logger.LogInfo("Channel was explicitly shut down. Stopping monitor.");
+                            return;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            GwServerPlugin.Logger.LogInfo("Connection monitoring task was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            GwServerPlugin.Logger.LogError($"Critical error in connection monitor: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <returns></returns>
+    private void Connect(ChannelBase channel)
+    {
         Client = new EdgeAgentService.EdgeAgentServiceClient(channel);
         var chatStream = Client.SendChatLogsStream();
         ChatLogStream = chatStream.RequestStream;
@@ -89,7 +160,7 @@ public class GrpcClientManager
         });
     }
     
-    private void BanInputBehaviour(AsyncServerStreamingCall<BanRequest> stream)
+    private static void BanInputBehaviour(AsyncServerStreamingCall<BanRequest> stream)
     {
         stream.ResponseStream.ForEachAsync(data =>
         {
@@ -154,7 +225,7 @@ public class GrpcClientManager
         );
     }
     
-    private void ProcessDiscordMessages(IAsyncStreamReader<ChatBack> inputStream)
+    private static void ProcessDiscordMessages(IAsyncStreamReader<ChatBack> inputStream)
     {
         inputStream.ForEachAsync(data =>
             {
