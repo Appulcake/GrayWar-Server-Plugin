@@ -100,11 +100,6 @@ public class BanCommand(ConfigFile config) : PermissionConfigurableCommand(confi
         }
 
         PlayerUtils.BanPlayer(banSteamID, reason, duration);
-        if (!GwServerPlugin.FamilySharingBorrowers.TryGetValue(banSteamID, out var ownerSteamID)) UniTask.FromResult<(bool, string?)>((true, response));
-        if (ownerSteamID == banSteamID) return UniTask.FromResult<(bool, string?)>((true, response));
-        PlayerUtils.BanPlayer(ownerSteamID, $"Owner of family shared banned account. Child banned for {reason}",
-            duration);
-        response += $"\tBanned Owner with steamID {ownerSteamID} as well";
         return UniTask.FromResult<(bool, string?)>((true, response));
     }
 

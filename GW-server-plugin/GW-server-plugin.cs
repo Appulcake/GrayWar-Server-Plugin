@@ -51,8 +51,6 @@ public class GwServerPlugin : BaseUnityPlugin
     private static Harmony? Harmony { get; set; }
     private static bool IsPatched { get; set; }
     
-    internal static readonly Dictionary<ulong, ulong> FamilySharingBorrowers = new();
-    
     internal static DateTime ServerStartTime; // Used to restart server over 24 hours
 
     internal static GrpcClientManager GrpcMgr = null!;
@@ -214,12 +212,6 @@ public class GwServerPlugin : BaseUnityPlugin
     
     private static void OnPlayerJoin(Player player)
     {
-        if (CheckOwnerBanned(player))
-        {
-            PlayerUtils.KickPlayer(player, "The owner of this familyshared account is banned.");
-            return;
-        }
-        
         if (StaffSlotService.IsSlotStaff(Globals.DedicatedServerManagerInstance.RealPlayerCount()) && !PlayerUtils.IsStaff(player))
         {
             Globals
@@ -278,13 +270,7 @@ public class GwServerPlugin : BaseUnityPlugin
         };
         GrpcMgr.Client?.SendPlayerJoinFacAsync(log);
     }
-
-    private static bool CheckOwnerBanned(Player player)
-    {
-        if (!FamilySharingBorrowers.TryGetValue(player.SteamID, out var ownerSteamID)) return false;
-        return Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList.Contains(new CSteamID(ownerSteamID));
-    }
-
+    
     internal static void OnPlayerTeamkill(Player killer, Player killed, string weaponName)
     {
         OnTeamkill(killer, killed.PlayerName, weaponName);
