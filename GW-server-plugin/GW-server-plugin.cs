@@ -263,6 +263,7 @@ public class GwServerPlugin : BaseUnityPlugin
 
     private static void OnPlayerJoinFaction(Player player, FactionHQ HQ)
     {
+        Logger.LogInfo($"{player.SteamID} joined {HQ.faction.factionName}");
         var log = new FactionLog
         {
             SteamID = player.SteamID,
