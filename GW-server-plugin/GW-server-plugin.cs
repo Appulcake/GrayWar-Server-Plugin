@@ -266,20 +266,20 @@ public class GwServerPlugin : BaseUnityPlugin
 
     private static void OnPlayerLeave(Player player)
     {
-        var displayName = player.GetDisplayName();
+        var logName = player.GetLogName();
         lock (ConnectedPlayerNamesLock)
         {
             ConnectedPlayerNames.Remove(player.SteamID);
         }
 
-        Logger.LogInfo($"{displayName} : {player.SteamID} - left the game");
+        Logger.LogInfo($"{logName} : {player.SteamID} - left the game");
         MissionVote.RemoveVoter(player.SteamID);
         PlayerIdentifier.RemovePlayer(player);
         var log = new JoinLeaveLog
         {
             SteamID = player.SteamID,
             IsOn = false,
-            Name = displayName,
+            Name = logName,
             Time = DateTime.UtcNow.ToTimestamp(),
             Score = (float)Math.Round(player.PlayerScore, 2)
         };
@@ -306,13 +306,13 @@ public class GwServerPlugin : BaseUnityPlugin
 
         if (!playerIsStillConnected) return;
 
-        var displayName = player.GetDisplayName();
-        Logger.LogInfo($"{displayName} : {steamId} - joined the game");
+        var logName = player.GetLogName();
+        Logger.LogInfo($"{logName} : {steamId} - joined the game");
         var log = new JoinLeaveLog
         {
             SteamID = steamId,
             IsOn = true,
-            Name = displayName,
+            Name = logName,
             Time = joinedAt.ToTimestamp()
         };
         GrpcMgr.Client?.SendPlayerActivityAsync(log);
@@ -331,7 +331,7 @@ public class GwServerPlugin : BaseUnityPlugin
     
     internal static void OnPlayerTeamkill(Player killer, Player killed, string weaponName)
     {
-        OnTeamkill(killer, killed.GetDisplayName(), weaponName);
+        OnTeamkill(killer, killed.GetLogName(), weaponName);
     }
 
     /// <summary>

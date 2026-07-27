@@ -35,7 +35,7 @@ public class ReportCommand(ConfigFile config) : PermissionConfigurableCommand(co
         GwServerPlugin.GrpcMgr.Client?.sendReportAsync(new serverReport
         {
             Content = content,
-            Username = player.GetDisplayName()
+            Username = player.GetLogName()
         });
         
         return UniTask.FromResult((true, (string?)$"{content} reported to GrayWar staff successfully."));

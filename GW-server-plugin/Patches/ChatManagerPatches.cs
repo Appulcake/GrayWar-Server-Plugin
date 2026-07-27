@@ -74,6 +74,12 @@ internal static class ChatManagerPatches
             SenderSteamID = player.SteamID
         };
         GwServerPlugin.GrpcMgr.ChatLogStream?.WriteAsync(log);
+        if (allChat)
+        {
+            var displayName = PlayerUtils.GetDisplayName(player);
+            Globals.ChatManagerInstance.RpcServerMessage($"{displayName}: {message}", true);
+            return false;
+        }
         return true;
     }
 }

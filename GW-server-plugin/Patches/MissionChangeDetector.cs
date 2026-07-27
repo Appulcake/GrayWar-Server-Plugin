@@ -15,7 +15,7 @@ namespace GW_server_plugin.Patches;
 [HarmonyPatch(typeof(DedicatedServerManager))]
 public class MissionChangeDetector
 {
-    /*[HarmonyPatch(nameof(DedicatedServerManager.LoadMissionMap))]
+    [HarmonyPatch(nameof(DedicatedServerManager.LoadMissionMap))]
     static void Postfix(DedicatedServerManager __instance, Mission mission, ref UniTask<bool> __result)
     {
         __result = AwaitResult(mission, __result);
@@ -63,5 +63,5 @@ public class MissionChangeDetector
         RestartService.Restart();
         
         GwServerPlugin.WarnService.ClearWarns();
-    }*/
+    }
 }   

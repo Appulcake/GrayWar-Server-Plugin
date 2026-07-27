@@ -114,7 +114,7 @@ public static class ChatService
         }
 
         Globals.ChatManagerInstance.RpcTargetServerMessage(targetPlayer.Owner, actualMessage, true);
-        GwServerPlugin.Logger.LogInfo($"Sent private message to {targetPlayer.GetDisplayName()}: {actualMessage}");
+        GwServerPlugin.Logger.LogInfo($"Sent private message to {targetPlayer.GetLogName()}: {actualMessage}");
     }
     
     /// <summary>

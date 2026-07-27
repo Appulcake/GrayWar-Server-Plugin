@@ -47,10 +47,7 @@ public static class PlayerUtils
     /// </remarks>
     public static string GetDisplayName(this Player player)
     {
-        var name = GwServerPlugin.TryGetConnectedPlayerName(player.SteamID, out var cachedName) &&
-                   !string.IsNullOrWhiteSpace(cachedName)
-            ? cachedName
-            : player.SteamID.ToString();
+        var name = player.GetLogName();
 
         if (PluginConfig.UseStaffPrefix?.Value == true && IsStaff(player))
             return $"{PluginConfig.StaffPrefix!.Value} {name}";
@@ -58,6 +55,18 @@ public static class PlayerUtils
         return GwServerPlugin.PlayerIdentifier.TryGetPlayerId(player, out var id)
             ? $"[{id}] {name}"
             : name;
+    }
+
+    /// <summary>
+    /// Gets the plain Steam persona name used in logs and audit records.
+    /// This deliberately omits staff and player-ID display tags.
+    /// </summary>
+    public static string GetLogName(this Player player)
+    {
+        return GwServerPlugin.TryGetConnectedPlayerName(player.SteamID, out var cachedName) &&
+               !string.IsNullOrWhiteSpace(cachedName)
+            ? cachedName
+            : player.SteamID.ToString();
     }
     
     /// <summary>
