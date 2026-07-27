@@ -188,7 +188,7 @@ public static class MissionService
             dsm.currentMission = mission;
             dsm.currentMissionOption = missionOptions;
             LastMission = mission;
-            //MissionChangeDetector.OnMissionChanged(mission);
+            MissionChangeDetector.OnMissionChanged(mission);
             return true;
         }
         catch (Exception e)
