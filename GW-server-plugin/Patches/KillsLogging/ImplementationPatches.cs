@@ -91,9 +91,21 @@ class PatchImpactDetectorFixedUpdate
     }
 }
 
-[HarmonyPatch(typeof(FuelTank), nameof(FuelTank.FuelTankFire))]
+[HarmonyPatch]
 class PatchFuelTankFire
 {
+    static MethodBase TargetMethod()
+    {
+        var method = AccessTools.Method(typeof(FuelTank), nameof(FuelTank.FuelTankFire));
+        var attr = method?.GetCustomAttribute<AsyncStateMachineAttribute>();
+
+        if (attr == null)
+            throw new Exception("FuelTankFire is not an async method");
+
+        return AccessTools.Method(attr.StateMachineType, nameof(IAsyncStateMachine.MoveNext))
+               ?? throw new MissingMethodException(attr.StateMachineType.FullName, nameof(IAsyncStateMachine.MoveNext));
+    }
+
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
     {
         return TakeDamageTranspiler.Inject(instructions, "Fuel tank fire");

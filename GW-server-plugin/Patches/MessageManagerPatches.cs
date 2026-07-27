@@ -10,20 +10,6 @@ namespace GW_server_plugin.Patches;
 internal static class MessageManagerPatches
 {
     [HarmonyPostfix]
-    [HarmonyPatch(typeof(MessageManager), nameof(MessageManager.JoinMessage))]
-    private static void JoinMessagePostfix(Player joinedPlayer)
-    {
-        PlayerEvents.OnPlayerJoined(joinedPlayer);
-    }
-    
-    [HarmonyPostfix]
-    [HarmonyPatch(typeof(MessageManager), nameof(MessageManager.DisconnectedMessage))]
-    private static void DisconnectedMessagePostfix(Player player)
-    {
-        PlayerEvents.OnPlayerLeft(player);
-    }
-    
-    [HarmonyPostfix]
     [HarmonyPatch(typeof(MessageManager), nameof(MessageManager.RpcPlayerJoinFactionMessage))]
     private static void JoinFactionPostfix(Player player, FactionHQ hq)
     {
