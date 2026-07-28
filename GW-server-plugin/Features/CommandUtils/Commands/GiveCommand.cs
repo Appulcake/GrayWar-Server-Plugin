@@ -1,7 +1,7 @@
 using System.Globalization;
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
 using GW_server_plugin.Helpers;
 using NuclearOption.Networking;
 
@@ -71,7 +71,7 @@ public class GiveCommand(ConfigFile config): PermissionConfigurableCommand(confi
         targetPlayer.AddAllocation(sum);
         
         ChatService.SendPrivateChatMessage($"you were given you {sum} (million)!", targetPlayer);
-        return UniTask.FromResult<(bool, string?)>((true, $"You have successfully given {sum}m to {targetPlayer.PlayerName}."));
+        return UniTask.FromResult<(bool, string?)>((true, $"You have successfully given {sum}m to {targetPlayer.GetDisplayName()}."));
     }
 
     /// <inheritdoc />

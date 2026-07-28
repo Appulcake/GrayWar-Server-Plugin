@@ -1,6 +1,6 @@
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
 using GW_server_plugin.Helpers;
 using Mirage;
 using NuclearOption.Networking;
@@ -44,7 +44,7 @@ public class ListPlayersCommand(ConfigFile config) : PermissionConfigurableComma
             player.TryGetPlayer(out p);
             if (p != null)
             {
-                playerNames += $"{p.PlayerName}, ";
+                playerNames += $"{p.GetDisplayName()}, ";
             }
         }
         var response = $"[{players.Count - 1}] ";

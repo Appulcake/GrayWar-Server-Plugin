@@ -1,30 +1,26 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using BepInEx;
 using BepInEx.Logging;
-using GW_server_plugin.Enums;
+using Com.Graywar.NoServerManager.Proto;
+using Google.Protobuf.WellKnownTypes;
 using GW_server_plugin.Events;
 using GW_server_plugin.Features;
 using GW_server_plugin.Features.CommandUtils;
-using GW_server_plugin.Features.IPC;
-using GW_server_plugin.Features.IPC.Packets;
+using GW_server_plugin.Features.Protobuf_IPC;
 using GW_server_plugin.Helpers;
 using GW_server_plugin.Patches.KillsLogging;
 using HarmonyLib;
-using JetBrains.Annotations;
-using Newtonsoft.Json;
-using NuclearOption.Networking;
+using JetBrains.Annotations; using NuclearOption.Networking;
 using Steamworks;
 
 namespace GW_server_plugin;
 
 /// <summary>
-/// Main plugin class for the plugin
+/// Main plugin class
 /// </summary>
 [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
 public class GwServerPlugin : BaseUnityPlugin
@@ -33,12 +29,7 @@ public class GwServerPlugin : BaseUnityPlugin
     
     internal new static ManualLogSource Logger { get; private set; } = null!;
     internal static PlayerIdentificationService PlayerIdentifier { get; private set; } = null!;
-
-    /// <summary>
-    /// Logging Outbox for the IPC communication and general logging to a file
-    /// </summary>
-    public static BlockingCollection<CommunicationPacket> LoggingOutBox = new();
-
+    
     internal static MissionVoteService MissionVote { get; private set; } = null!;
 
     internal static WeatherRandomizer WeatherRandomizer { get; private set; } = null!;
@@ -60,15 +51,39 @@ public class GwServerPlugin : BaseUnityPlugin
     private static Harmony? Harmony { get; set; }
     private static bool IsPatched { get; set; }
     
-    private CancellationTokenSource? _cts;
-    
-    internal static readonly Dictionary<ulong, ulong> FamilySharingBorrowers = new();
+    internal static DateTime ServerStartTime; // Used to restart server over 24 hours
 
+    internal static GrpcClientManager GrpcMgr = null!;
 
-    private Socket? _socket;
-    
+    /// <summary>
+    /// Maps each connected player's SteamID to their current display name.
+    /// </summary>
+    internal static readonly Dictionary<ulong, string> ConnectedPlayerNames = [];
+
+    private static readonly object ConnectedPlayerNamesLock = new();
+
+    internal static bool TryGetConnectedPlayerSteamId(string playerName, out ulong steamId)
+    {
+        lock (ConnectedPlayerNamesLock)
+        {
+            var player = ConnectedPlayerNames.FirstOrDefault(pair =>
+                string.Equals(pair.Value, playerName, StringComparison.CurrentCultureIgnoreCase));
+            steamId = player.Key;
+            return player.Key != 0;
+        }
+    }
+
+    internal static bool TryGetConnectedPlayerName(ulong steamId, out string playerName)
+    {
+        lock (ConnectedPlayerNamesLock)
+        {
+            return ConnectedPlayerNames.TryGetValue(steamId, out playerName!);
+        }
+    }
+
     private void Awake()
     {
+        ServerStartTime = DateTime.Now;
         Instance = this;
         Logger = base.Logger;
         
@@ -96,16 +111,6 @@ public class GwServerPlugin : BaseUnityPlugin
         Logger.LogInfo($"Loading {PluginInfo.PLUGIN_NAME} v{PluginInfo.PLUGIN_VERSION}...");
         
         // TimeService.Initialize();
-
-
-        if (PluginConfig.IpcEnable!.Value) {
-            _socket = new Socket();
-            _socket.OnJson += HandleJson;
-            _socket.Start(PluginConfig.IpcHost!.Value, PluginConfig.IpcPort!.Value);
-            StartLoggingSender();
-        }
-        
-        RestartWarningService.ScheduleWarnings();
         
         PatchAll();
         
@@ -138,6 +143,8 @@ public class GwServerPlugin : BaseUnityPlugin
         PlayerEvents.PlayerLeft += OnPlayerLeave;
         PlayerEvents.PlayerLeft += _ => MissionBalance.CheckAndApplyBalance();
         PlayerEvents.PlayerJoined += OnPlayerJoin;
+        PlayerEvents.PlayerJoined += MissionBalanceService.OnPlayerJoin;
+        PlayerEvents.PlayerJoined += _ => RestartService.CancelRestart();
         PlayerEvents.PlayerJoinedFaction += OnPlayerJoinFaction;
         PlayerEvents.PlayerJoinedFaction += (_, _) => MissionBalance.CheckAndApplyBalance();
 
@@ -146,7 +153,40 @@ public class GwServerPlugin : BaseUnityPlugin
 
         TimeEvents.Every10Minutes += BroadcastService.SendBroadcast;
         
+        TimeEvents.Every30Minutes += RestartService.AutoRestart;
+        
         TimeService.Initialize();
+        RestartService.Initialize(Config);
+        try
+        {
+            GrpcMgr = new GrpcClientManager(Config);
+            var modList = GrpcMgr.Client!.getStaffList(new Empty())!;
+            PluginConfig.UpdateModList(modList);
+            
+            var bans = GrpcMgr.Client.GetBanList(new Empty()).Bans
+                .Select(ban => (id: new CSteamID(ban.SteamID), reason: ban.Reason));
+            
+            _ = UpdateBanListWhenReadyAsync(bans);
+        }
+        catch (Exception e)
+        {
+            Logger.LogError($"Failed to initialize GrpcClientManager: {e}\n{e.StackTrace}");
+        }
+    }
+    
+    private static async Task UpdateBanListWhenReadyAsync(IEnumerable<(CSteamID id, string reason)> bans)
+    {
+        while (Globals.NetworkManagerNuclearOptionInstance == null ||
+               Globals.DedicatedServerManagerInstance == null)
+        {
+            await Task.Delay(1000);
+        }
+        
+        AllowBanListUtils.ReplaceWithNewData(
+            Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList,
+            Globals.DedicatedServerManagerInstance.Config.BanListPaths[0],
+            bans.ToList()
+        );
     }
 
     private static void PatchAll()
@@ -195,52 +235,9 @@ public class GwServerPlugin : BaseUnityPlugin
 
         Logger.LogDebug("Unpatched!");
     }
-
-
-
-    private void StartLoggingSender()
-    {
-        _cts = new CancellationTokenSource();
-
-        Task.Run(() =>
-        {
-            try
-            {
-                foreach (var msg in LoggingOutBox.GetConsumingEnumerable(_cts.Token))
-                {
-                    _socket?.SendJson(JsonConvert.SerializeObject(msg)); // Null if IPC is not enabled.
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected on shutdown
-            }
-        });
-    }
-    
-    private static async void HandleJson(string msg)
-    {
-        try
-        {
-            var packet = JsonConvert.DeserializeObject<CommunicationPacket>(msg);
-            CommunicationPacket? respPacket = await packet!.Process();
-            if (respPacket is null) return;
-            LoggingOutBox.Add(respPacket);
-        }
-        catch (Exception e)
-        {
-            Logger.LogError($"Error when recieving Json in IPC: {e}");
-        }
-    }
     
     private static void OnPlayerJoin(Player player)
     {
-        if (CheckOwnerBanned(player))
-        {
-            PlayerUtils.KickPlayer(player, "The owner of this familyshared account is banned.");
-            return;
-        }
-        
         if (StaffSlotService.IsSlotStaff(Globals.DedicatedServerManagerInstance.RealPlayerCount()) && !PlayerUtils.IsStaff(player))
         {
             Globals
@@ -253,63 +250,88 @@ public class GwServerPlugin : BaseUnityPlugin
             return;
         }
         
-        Logger.LogDebug($"{player.PlayerName} : {player.SteamID} - joined the game");
-        var originalName = player.PlayerName;
-        PlayerUtils.ApplyOrRemoveStaffTag(player);
-        // Apply identification tag if not a staff member
+        var originalName = player.GetPlayerName().SanitizedName;
+        lock (ConnectedPlayerNamesLock)
+        {
+            ConnectedPlayerNames[player.SteamID] = originalName;
+        }
+        // Assign an ID used by PlayerUtils.GetDisplayName for non-staff players.
         if (!PlayerUtils.IsStaff(player))
         {
             PlayerIdentifier.AssignNewPlayer(player);
-            PlayerUtils.ApplyIdentificationTag(player, PlayerIdentifier.GetPlayerId(player));
         }
-        Logger.LogInfo($"{player.PlayerName} : {player.SteamID} - joined the game");
-        var joinPacket = new LogEntryPacket
-        {
-            Channel = LogChannel.JoinLeave,
-            LogText = $"1:{player.SteamID}:{originalName}"
-        };
-        LoggingOutBox.Add(joinPacket);
 
-        var saveData = player.GetAuthData().SaveData;
-        if (saveData == null || saveData.Faction == null) return;
-        if (player.HQ == saveData.Faction) return;
-        player.HQ = saveData.Faction;
-        player.HQ.AddPlayer(player);
-        player.HQ.RequestTrackingStates(player);
+        _ = UpdateConnectedPlayerNameAsync(player, DateTime.UtcNow);
     }
 
     private static void OnPlayerLeave(Player player)
     {
-        Logger.LogInfo($"{player.PlayerName} : {player.SteamID} - left the game");
+        var logName = player.GetLogName();
+        lock (ConnectedPlayerNamesLock)
+        {
+            ConnectedPlayerNames.Remove(player.SteamID);
+        }
+
+        Logger.LogInfo($"{logName} : {player.SteamID} - left the game");
         MissionVote.RemoveVoter(player.SteamID);
         PlayerIdentifier.RemovePlayer(player);
-        var leavePacket = new LogEntryPacket
+        var log = new JoinLeaveLog
         {
-            Channel = LogChannel.JoinLeave,
-            LogText = $"0:{player.SteamID}:{Math.Round(player.PlayerScore, 2)}"
+            SteamID = player.SteamID,
+            IsOn = false,
+            Name = logName,
+            Time = DateTime.UtcNow.ToTimestamp(),
+            Score = (float)Math.Round(player.PlayerScore, 2)
         };
-        LoggingOutBox.Add(leavePacket);
+        GrpcMgr.Client?.SendPlayerActivityAsync(log);
+        RestartService.CheckIfNoPlayers();
+    }
+
+    private static async Task UpdateConnectedPlayerNameAsync(Player player, DateTime joinedAt)
+    {
+        var steamId = player.SteamID;
+        var username = await SteamWebApi.GetUsernameAsync(steamId).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(username)) return;
+
+        var playerIsStillConnected = false;
+        lock (ConnectedPlayerNamesLock)
+        {
+            // Do not re-add a player who left while the web request was pending.
+            if (ConnectedPlayerNames.ContainsKey(steamId))
+            {
+                ConnectedPlayerNames[steamId] = username!;
+                playerIsStillConnected = true;
+            }
+        }
+
+        if (!playerIsStillConnected) return;
+
+        var logName = player.GetLogName();
+        Logger.LogInfo($"{logName} : {steamId} - joined the game");
+        var log = new JoinLeaveLog
+        {
+            SteamID = steamId,
+            IsOn = true,
+            Name = logName,
+            Time = joinedAt.ToTimestamp()
+        };
+        GrpcMgr.Client?.SendPlayerActivityAsync(log);
     }
 
     private static void OnPlayerJoinFaction(Player player, FactionHQ HQ)
     {
-        var factionJoinPacket = new LogEntryPacket
+        Logger.LogInfo($"{player.SteamID} joined {HQ.faction.factionName}");
+        var log = new FactionLog
         {
-            Channel = LogChannel.FactionJoin,
-            LogText = $"{player.SteamID}:{HQ.faction.name}"
+            SteamID = player.SteamID,
+            Faction = HQ.faction.name
         };
-        LoggingOutBox.Add(factionJoinPacket);
+        GrpcMgr.Client?.SendPlayerJoinFacAsync(log);
     }
-
-    private static bool CheckOwnerBanned(Player player)
-    {
-        if (!FamilySharingBorrowers.TryGetValue(player.SteamID, out var ownerSteamID)) return false;
-        return Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList.Contains(new CSteamID(ownerSteamID));
-    }
-
+    
     internal static void OnPlayerTeamkill(Player killer, Player killed, string weaponName)
     {
-        OnTeamkill(killer, killed.PlayerName, weaponName);
+        OnTeamkill(killer, killed.GetLogName(), weaponName);
     }
 
     /// <summary>

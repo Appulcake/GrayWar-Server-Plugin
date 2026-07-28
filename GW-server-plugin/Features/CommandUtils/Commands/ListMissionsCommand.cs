@@ -1,6 +1,7 @@
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
+using GW_server_plugin.Patches;
 using NuclearOption.Networking;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands;
@@ -34,20 +35,29 @@ public class ListMissionsCommand(ConfigFile config): PermissionConfigurableComma
     public UniTask<(bool success, string? response)> Execute(Player player, string[] args) => Execute(args);
 
     /// <inheritdoc />
-    public UniTask<(bool success, string? response)> Execute(string[] args)
+    public async UniTask<(bool success, string? response)> Execute(string[] args)
     {
         var missions = MissionService.GetAllAvailableMissionOptions();
         if (missions.Length == 0)
         {
-            return UniTask.FromResult<(bool, string?)>((true, "No available missions"));
+            return (true, "No available missions");
         }
 
         var response = "Available missions:\n";
         for (var i = 0; i < missions.Length; i++)
         {
-            response += $"[{i}] {missions[i].Key.Name}\n";
+            var name = missions[i].Key.Name;
+            if (ulong.TryParse(name, out var id))
+            {
+                var missionNameResult = await MissionNameFix.GetMissionNameAsync(id);
+                if (missionNameResult.success)
+                {
+                    name = missionNameResult.name!;
+                }
+            }
+            response += $"[{i}] {name}\n";
         }
-        return UniTask.FromResult<(bool, string?)>((true, response));
+        return (true, response);
     }
 
     /// <inheritdoc />

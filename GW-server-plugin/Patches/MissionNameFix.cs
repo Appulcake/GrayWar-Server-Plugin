@@ -1,9 +1,10 @@
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection.Emit;
+using Cysharp.Threading.Tasks;
 using HarmonyLib;
 using NuclearOption.AddressableScripts;
 using NuclearOption.DedicatedServer;
+using NuclearOption.Networking;
+using NuclearOption.Networking.Lobbies;
 using NuclearOption.SavedMission;
 using NuclearOption.Workshop;
 using Steamworks;
@@ -13,57 +14,73 @@ namespace GW_server_plugin.Patches;
 [HarmonyPatch]
 internal class MissionNameFix
 {
-    [HarmonyPatch(
-        typeof(MissionGroup.WorkshopGroup),
-        nameof(MissionGroup.WorkshopGroup.TryGetJson),
-        [typeof(MissionKey), typeof(string)],
-        [ArgumentType.Normal, ArgumentType.Out]
-    )]
-    [HarmonyPostfix]
-    public static void GetJsonPostfix(
-        MissionGroup.WorkshopGroup __instance,
-        ref MissionKey key,
-        ref string json,
-        ref bool __result)
+    [HarmonyPatch(typeof(DedicatedServerKeyValues), nameof(DedicatedServerKeyValues.ApplyValuesToSteam))]
+    [HarmonyPrefix]
+    public static void TransformMissionName(DedicatedServerKeyValues __instance)
     {
-        if (!__result) return;
-        GwServerPlugin.Logger.LogDebug(GetMissionName(key.WorkshopId!.Value));
+        if (!__instance.keyValues.TryGetValue("mi", out var originalName)) return;
+        if (!ulong.TryParse(originalName, out var workshopID)) return;
+        GetMissionName(workshopID, out var newName);
+        newName ??= originalName;
+        __instance.keyValues["mi"] = newName;
+        GwServerPlugin.Logger.LogDebug(newName);
     }
 
-    private static string? GetMissionName(PublishedFileId_t workshopId)
+    [HarmonyPatch(typeof(NetworkManagerNuclearOption), nameof(NetworkManagerNuclearOption.SendServerLoadingMessage))]
+    [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
+    public static void ServerLoadingMessageFixWorkshopIDNames(
+        NetworkManagerNuclearOption __instance,
+        ref string message
+        )
     {
-        SteamWorkshop.TryGetInstallFolder(workshopId, out var folder);
+        var rt = "";
+        foreach (var s in message.Split('\n'))
+        {
+            if (!ulong.TryParse(s, out var workshopID)) continue;
+            GetMissionName(workshopID, out var name);
+            rt += name ?? s;
+        }
+        message = rt;
+    }
+
+    internal static bool GetMissionName(ulong workshopId, out string? name) => GetMissionName(new PublishedFileId_t(workshopId), out name);
+    
+    private static bool GetMissionName(PublishedFileId_t workshopId, out string? name)
+    {
+        name = null;
+        if (!SteamWorkshop.TryGetInstallFolder(workshopId, out var folder))
+        {
+            return false;
+        }        
         var data = ModLoader.ReadMetaData<MissionGroup.MissionMetaData>(workshopId, folder!);
-        return data?.FileName;
+        name = data?.FileName;
+        return name != null;
+    }
+
+    [SuppressMessage("Method Declaration", "Harmony003:Harmony non-ref patch parameters modified")]
+    internal static async UniTask<(bool success, string? name)> GetMissionNameAsync(ulong workshopId)
+    {
+        if (!await DedicatedServerManager.EnsureWorkshopItemDownloaded(
+                new MissionKeySaveable { Group = "Workshop", Name = workshopId.ToString() }))
+            return (false, null);
+
+        var workshopIDTyped = new PublishedFileId_t(workshopId);
+        
+        if (!SteamWorkshop.TryGetInstallFolder(workshopIDTyped, out var folder))
+        {
+            return (false, null);
+        }
+        var data = ModLoader.ReadMetaData<MissionGroup.MissionMetaData>(workshopIDTyped, folder!);
+        var name = data?.FileName;
+        return (name != null, name);
     }
     
     [SuppressMessage("Method Declaration", "Harmony003:Harmony non-ref patch parameters modified")]
     public static MissionKey TranslateWorkshopName(MissionKey key)
     {
-        if (key.Group != MissionGroup.Workshop || key.WorkshopId == null) return key;
-        return new MissionKey(key.Name, GetMissionName(key.WorkshopId.Value), key.WorkshopId, MissionGroup.Workshop);
+        if (key.Group != MissionGroup.Workshop || key.WorkshopId == null ||
+            !GetMissionName(key.WorkshopId.Value, out var name)) return key;
+        return new MissionKey(key.Name, name, key.WorkshopId, MissionGroup.Workshop);
     }
-    
-    [HarmonyPatch(typeof(DedicatedServerManager), nameof(DedicatedServerManager.PreLoadMission))]
-    [HarmonyTranspiler]
-    public static IEnumerable<CodeInstruction> PreLoadMissionTranspiler(IEnumerable<CodeInstruction> instructions)
-    {
-        var matcher = new CodeMatcher(instructions)
-            .MatchForward(
-                false,
-                new CodeMatch(OpCodes.Ldloc_0),
-                new CodeMatch(OpCodes.Ldarg_1)
-            );
-
-        if (matcher.IsValid)
-        {
-            GwServerPlugin.Logger.LogDebug("Found preloadmission transpile target.");
-            matcher.Advance(1);
-            matcher.Insert(new CodeInstruction(OpCodes.Call, AccessTools.Method(
-                typeof(MissionNameFix), nameof(TranslateWorkshopName))));
-        }
-
-        return matcher.InstructionEnumeration();
-    }
-    
 }

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BepInEx.Configuration;
 using GW_server_plugin.Helpers;
 using NuclearOption.DedicatedServer;
+using UnityEngine;
 
 namespace GW_server_plugin.Features;
 
@@ -30,7 +31,15 @@ internal sealed class MissionVoteService(ConfigFile config)
         config.Bind(RtvCommandSection, "Map Switch delay (seconds)", DefaultMapSwitchDelay);
 
     private const int DefaultMinVoteValidity = 3;
-    private ConfigEntry<int> MinVoteValidity { get; } = config.Bind(RtvCommandSection, "Minimum number of players for a vote to be valid", DefaultMinVoteValidity);
+    
+    private ConfigEntry<int> MinVoteValidity { get; } = config.Bind(RtvCommandSection, "nMinPlayers",
+        DefaultMinVoteValidity,
+        "Minimum number of players for a vote to be valid. Evaluates with minVoterPercent, it will take whichever value is greater.");
+    
+    private ConfigEntry<int> MinAttendancePercent { get; } = config.Bind(RtvCommandSection, "minVoterPercent", 33,
+        new ConfigDescription(
+            "Minimum percentage of the server pop that needs to vote in order for the result to be valid. Evaluates with nMinPlayers, it will take whichever value is greater.",
+            new AcceptableValueRange<int>(0, 100)));
 
     private readonly HashSet<ulong> _yesVotes = [];
     private readonly HashSet<ulong> _noVotes = [];
@@ -150,8 +159,7 @@ internal sealed class MissionVoteService(ConfigFile config)
     
     private void DisplayRtvCount()
     {
-        var connectedPlayers = Globals.AuthenticatedPlayers.Count - 1;
-
+        var connectedPlayers = PlayerUtils.GetPlayerCount();
         var nYesVotes = _yesVotes.Count;
         var nNoVotes = _noVotes.Count;
         var autoPassLimit = Math.Ceiling((double)connectedPlayers / 2f);
@@ -191,13 +199,20 @@ internal sealed class MissionVoteService(ConfigFile config)
     private void EndVote()
     {
         ChatService.SendChatMessageAsServer($"RTV is ending");
-        var connectedPlayers = Globals.AuthenticatedPlayers.Count - 1;
+        var connectedPlayers = PlayerUtils.GetPlayerCount();
         var nYesVotes = _yesVotes.Count;
         var nNoVotes = _noVotes.Count;
+        var nTotalVotes = nYesVotes + nNoVotes;
+        
+        var minVotesForValidity = 
+            Mathf.Max(MinVoteValidity.Value,
+            PlayerUtils.GetPlayerCount() * (MinAttendancePercent.Value / 100f));
+        
         var autoPassLimit = Math.Ceiling((double)connectedPlayers / 2f);
         if (connectedPlayers % 2 == 0) autoPassLimit++; // make it absolute majority.
-        ChatService.SendChatMessageAsServer($"Final votes: Yes: {nYesVotes}/{autoPassLimit}\tNo: {nNoVotes}/{autoPassLimit}");
-        if (nYesVotes >= autoPassLimit || (nYesVotes >= MinVoteValidity.Value && nYesVotes > nNoVotes))
+        ChatService.SendChatMessageAsServer(
+            $"Final votes: Yes: {nYesVotes}/{autoPassLimit}\tNo: {nNoVotes}/{autoPassLimit}");
+        if (nTotalVotes >= minVotesForValidity && (nYesVotes >= autoPassLimit || nYesVotes > nNoVotes))
         {
             PassVote();
         }

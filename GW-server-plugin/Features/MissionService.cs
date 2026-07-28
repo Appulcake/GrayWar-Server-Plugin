@@ -7,7 +7,6 @@ using GW_server_plugin.Patches;
 using NuclearOption.DedicatedServer;
 using NuclearOption.Networking.Lobbies;
 using NuclearOption.SavedMission;
-using NuclearOption.SavedMission.ObjectiveV2;
 using UnityEngine;
 
 namespace GW_server_plugin.Features;
@@ -106,13 +105,37 @@ public static class MissionService
     /// Adds a mission to the rotation
     /// </summary>
     /// <param name="mission">The mission to add to the rotation</param>
-    public static void AddMission(MissionOptions mission)
+    /// <param name="save">If true, the resulting missionRotation will be saved in the config file.</param>
+    public static void AddMission(MissionOptions mission, bool save = false)
     {
         var oldMr = Globals.DedicatedServerManagerInstance.missionRotation!;
         var ml = new MissionOptions[oldMr.allMissions.Count + 1];
         oldMr.allMissions.CopyTo(ml);
         ml[ml.Length - 1] = mission;
-        Globals.DedicatedServerManagerInstance.ReloadMissionRotation(ml, oldMr.rotationType, false);
+        var dsm = Globals.DedicatedServerManagerInstance;
+        dsm.ReloadMissionRotation(ml, oldMr.rotationType, false);
+        
+        switch (oldMr.rotationType)
+        {
+            case RotationType.RandomQueue:
+            case RotationType.Sequence:
+                var i = 0;
+                while (!dsm.missionRotation.GetNext().Key.Equals(dsm.currentMissionOption.Key))
+                {
+                    if (i >= dsm.missionRotation.allMissions.Count) break;
+                    i++;
+                }
+                break;
+            case RotationType.PureRandom:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+        
+        if (!save) return;
+        
+        Globals.DedicatedServerManagerInstance.Config.MissionRotation = ml;
+        DedicatedServerConfig.Save("DedicatedServerConfig.json", Globals.DedicatedServerManagerInstance.Config, true);
     }
 
     /// <summary>

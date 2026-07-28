@@ -1,8 +1,8 @@
 using System.Linq;
 using System.Security;
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
 using GW_server_plugin.Helpers;
 using NuclearOption.Networking;
 
@@ -16,15 +16,14 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 public class BanCommand(ConfigFile config) : PermissionConfigurableCommand(config), IGameCommand, IConsoleCommand
 {
     /// <inheritdoc />
-    public override string Name { get; } = "ban";
-
+    public override string Name => "ban";
+    
     /// <inheritdoc />
-    public override string Description { get; } = "Bans a player from the server.";
-
+    public override string Description => "Bans a player from the server.";
+    
     /// <inheritdoc />
-    public override string Usage { get; } =
-        "ban <Player (by name, steamID or playerID)> <Optional string Reason> <Optional duration (Xh or Xd)>";
-
+    public override string Usage => "ban <Player (by name, steamID or playerID)> <Optional string Reason> <Optional duration (Xh or Xd)>";
+    
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args) => Validate(args);
 
@@ -91,7 +90,7 @@ public class BanCommand(ConfigFile config) : PermissionConfigurableCommand(confi
             banSteamID = player!.SteamID;
             Globals.NetworkManagerNuclearOptionInstance
                 .KickPlayerAsync(player, $"Banned for reason: {reason}").Forget();
-            response = $"Banned player {player.PlayerName} for reason {reason}";
+            response = $"Banned player {player.GetDisplayName()} for reason {reason}";
         }
 
         if (duration is not null)
@@ -100,11 +99,6 @@ public class BanCommand(ConfigFile config) : PermissionConfigurableCommand(confi
         }
 
         PlayerUtils.BanPlayer(banSteamID, reason, duration);
-        if (!GwServerPlugin.FamilySharingBorrowers.TryGetValue(banSteamID, out var ownerSteamID)) UniTask.FromResult<(bool, string?)>((true, response));
-        if (ownerSteamID == banSteamID) return UniTask.FromResult<(bool, string?)>((true, response));
-        PlayerUtils.BanPlayer(ownerSteamID, $"Owner of family shared banned account. Child banned for {reason}",
-            duration);
-        response += $"\tBanned Owner with steamID {ownerSteamID} as well";
         return UniTask.FromResult<(bool, string?)>((true, response));
     }
 

@@ -1,8 +1,7 @@
 using System;
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
-using GW_server_plugin.Helpers;
 using GW_server_plugin.Patches;
 using NuclearOption.DedicatedServer;
 using NuclearOption.Networking;
@@ -26,12 +25,17 @@ public class AddWorkshopMission(ConfigFile config): PermissionConfigurableComman
     public override string Description => "Adds a mission to the server from it's workshopID.\nThis has temporary effect and won't be persisted after a server restart.";
 
     /// <inheritdoc />
-    public override string Usage => "addmission <workshopID>";
+    public override string Usage => "addmission <workshopID> <Optional bool save, default false>";
 
     /// <inheritdoc />
     public UniTask<bool> Validate(string[] args)
     {
-        return UniTask.FromResult(args.Length == 1 && ulong.TryParse(args[0], out _));
+        return UniTask.FromResult(args.Length switch
+        {
+            2 => ulong.TryParse(args[0], out _) && bool.TryParse(args[1], out _),
+            1 => ulong.TryParse(args[0], out _),
+            _ => false
+        });
     }
     
     /// <inheritdoc />
@@ -44,6 +48,8 @@ public class AddWorkshopMission(ConfigFile config): PermissionConfigurableComman
         };
         
         var workshopID = ulong.Parse(args[0]);
+        // ReSharper disable once SimplifyConditionalTernaryExpression
+        var save = args.Length > 1 ? bool.Parse(args[1]) : false;
         try
         {
             var downloadResult = await SteamWorkshop.DownloadItemServer(new PublishedFileId_t(workshopID));
@@ -56,7 +62,7 @@ public class AddWorkshopMission(ConfigFile config): PermissionConfigurableComman
         if (!keySaveable.TryGetKey(out var key)) return (false, $"{keySaveable.Name} is not a valid key");
         key = MissionNameFix.TranslateWorkshopName(key);
 
-        MissionService.AddMission(new MissionOptions{Key = keySaveable, MaxTime = 14400f});
+        MissionService.AddMission(new MissionOptions{Key = keySaveable, MaxTime = 14400f}, save);
         
         return (true, $"Added mission {key.Name} to rotation successfully.");
     }

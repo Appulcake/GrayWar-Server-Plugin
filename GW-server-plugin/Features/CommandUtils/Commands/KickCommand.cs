@@ -1,7 +1,7 @@
 using System.Linq;
 using BepInEx.Configuration;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
 using GW_server_plugin.Helpers;
 using NuclearOption.Networking;
 
@@ -51,7 +51,7 @@ public class KickCommand(ConfigFile config): PermissionConfigurableCommand(confi
         if (PlayerUtils.TryFindPlayer(target, out var targetPlayer))
         {
             PlayerUtils.KickPlayer(targetPlayer!,  string.Join(" ", args.Skip(1)));
-            return UniTask.FromResult<(bool, string?)>((true, $"{targetPlayer!.PlayerName} has been kicked!"));
+            return UniTask.FromResult<(bool, string?)>((true, $"{targetPlayer!.GetDisplayName()} has been kicked!"));
         }
 
         return UniTask.FromResult<(bool, string?)>((false, $"{target} is not a valid player!"));

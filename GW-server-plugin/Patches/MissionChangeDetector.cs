@@ -1,6 +1,8 @@
+using System;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
-using GW_server_plugin.Features.IPC.Packets;
+using Google.Protobuf.WellKnownTypes;
+using GW_server_plugin.Features;
 using HarmonyLib;
 using NuclearOption.DedicatedServer;
 using NuclearOption.SavedMission;
@@ -47,13 +49,19 @@ public class MissionChangeDetector
     internal static void OnMissionChanged(Mission? mission)
     {
         GwServerPlugin.Logger.LogDebug($"Mission changed: {mission?.Name ?? "null"}");
-        var missionChangePacket = new LogEntryPacket
+        var name = mission?.Name ?? "null";
+        if (ulong.TryParse(name, out var workshopID))
+            if (MissionNameFix.GetMissionName(workshopID, out var workshopName))
+                name = workshopName!;
+        var log = new missionStatus
         {
-            Channel = LogChannel.MissionStatus,
-            LogText = mission?.Name ?? "null"
+            MissionName = name,
+            Time = DateTime.UtcNow.ToTimestamp()
         };
+        GwServerPlugin.GrpcMgr.Client?.SendMissionChangeAsync(log);
+        if (!RestartService.AwaitingRestart) return;
+        RestartService.Restart();
         
-        GwServerPlugin.LoggingOutBox.Add(missionChangePacket);
         GwServerPlugin.WarnService.ClearWarns();
     }
 }   

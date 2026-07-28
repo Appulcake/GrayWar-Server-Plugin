@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package com.graywar.noServerManager.proto;
+
+
+
+option java_multiple_files = true;
+option java_package = "com.graywar.noServerManager.proto";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------
+
+enum PermissionLevel {
+  Everyone = 0;
+  Moderator = 1;
+  Admin = 2;
+  Owner = 3;
+}
+
+message StatusResponse {
+  bool ok = 1;
+  uint32 playerNumber = 2;
+  uint32 maxPlayers = 3;
+  string missionName = 4;
+  google.protobuf.Timestamp missionStart = 5;
+  google.protobuf.Timestamp lastRestart = 6;
+  string requestID = 7;
+}
+
+message StatusRequest {
+  string requestID = 1;
+}
+
+
+message BanRequest {
+  bool shouldBeBanned = 1;
+  uint64 steamID = 2;
+  string reason = 3;
+  google.protobuf.Timestamp ban_start = 4;
+  google.protobuf.Timestamp ban_end = 5;
+}
+
+message ChatLog{
+  google.protobuf.Timestamp messageSendTime = 1;
+  uint64 senderSteamID = 2;
+  string messageChannel = 3;
+  string message = 4;
+}
+
+message ChatBack{
+  string senderName = 1;
+  string message = 2;
+}
+
+message LinkUser{
+  uint64 senderSteamID = 1;
+  uint32 oneTimeCode = 2;
+}
+
+message KickLog{
+  uint64 steamID = 1;
+  string reason = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message WarnLog{
+  uint64 steamID = 1;
+  string reason = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message JoinLeaveLog{
+  uint64 steamID = 1;
+  string name = 2;
+  bool isOn = 3;
+  float score = 4;
+  google.protobuf.Timestamp time = 5;
+}
+
+message FactionLog{
+  uint64 steamID = 1;
+  string faction = 2;
+}
+
+message missionStatus{
+  string missionName = 1;
+  google.protobuf.Timestamp time = 2;
+}
+
+message sortieStatus{
+  uint64 steamID = 1;
+  bool start = 2;
+  string planeName = 3;
+  bool killed = 4;
+  google.protobuf.Timestamp time = 5;
+}
+
+message KillLog{
+  uint64 killer = 1;
+  uint64 killed = 2;
+  string weapon = 3;
+  string killerUnit = 4;
+  string killedUnit = 5;
+  google.protobuf.Timestamp time = 6;
+}
+
+message Command{
+  string requestID = 1;
+  string name = 2;
+  repeated string arguments = 3;
+  bool result = 4;
+  PermissionLevel permLevel = 5;
+}
+
+message CommandResult{
+  string requestID = 1;
+  bool ok = 2;
+  string result = 3;
+}
+
+message Ack {
+  bool ok = 1;
+}
+
+message Ban{
+  uint64 steamID = 1;
+  string reason = 2;
+}
+
+message BanList
+{
+  repeated Ban bans = 1;
+}
+
+message DonationLog{
+  uint64 donatorSteamID = 1;
+  uint64 receiverSteamID = 2;
+  uint32 amountMillions = 3;
+  google.protobuf.Timestamp time = 4;
+}
+
+message serverReport{
+  string username = 1;
+  string content = 2;
+}
+
+message permissionBreakdown {
+  repeated uint64 admins = 2;
+  repeated uint64 mods = 3;
+}
+
+// ---------------------------------------------------------------------
+// Services
+// ---------------------------------------------------------------------
+
+service EdgeAgentService {
+  rpc SendBan(BanRequest) returns (Ack);
+  rpc SendKick(KickLog) returns (Ack);
+  rpc SendWarn(WarnLog) returns (Ack);
+  rpc SendPlayerActivity(JoinLeaveLog) returns (Ack);
+  rpc SendPlayerJoinFac(FactionLog) returns (Ack);
+  rpc SendMissionChange(missionStatus) returns (Ack);
+  rpc SendSortieChange(sortieStatus) returns (Ack);
+  rpc SendKill(KillLog) returns (Ack);
+  rpc SendTeamKill(KillLog) returns (Ack);
+  rpc sendLinkCode(LinkUser) returns (Ack);
+  rpc sendDonation(DonationLog) returns (Ack);
+  rpc sendReport(serverReport) returns (Ack);
+  rpc getStaffList(google.protobuf.Empty) returns (permissionBreakdown);
+  rpc GetBanList(google.protobuf.Empty) returns (BanList);
+
+  rpc StatusStream(stream StatusResponse) returns (stream StatusRequest);
+  rpc SendChatLogsStream(stream ChatLog) returns (stream ChatBack);
+  rpc SubscribeToBans(google.protobuf.Empty) returns (stream BanRequest);
+  rpc SubscribeToCommands(stream CommandResult) returns (stream Command);
+}

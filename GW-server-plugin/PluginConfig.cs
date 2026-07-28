@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using BepInEx.Configuration;
-using GW_server_plugin.Enums;
+using Com.Graywar.NoServerManager.Proto;
 
 namespace GW_server_plugin;
 
@@ -11,8 +11,9 @@ namespace GW_server_plugin;
 public static class PluginConfig
 {
     internal const string GeneralSection = "General";
-    internal const string IpcSection = "IPCSection";
+    internal const string RpcSection = "gRPC communication";
     internal const string BroadcastSection = "Broadcasts";
+    internal const string SteamWebApiSection = "Steam Web API";
 
     internal static ConfigEntry<bool>? ForceLowWreckDespawn;
     internal const bool DefaultForceLowWreckDespawn = true;
@@ -28,19 +29,7 @@ public static class PluginConfig
 
     internal static ConfigEntry<string>? CommandPrefix;
     internal const string DefaultCommandPrefix = "/";
-
-    internal static ConfigEntry<int>? IpcPort;
-    internal const int DefaultIpcPort = 10042;
-
-    internal static ConfigEntry<string>? IpcHost;
-    internal const string DefaultIpcHost = "127.0.0.1";
-
-    internal static ConfigEntry<string>? IpcCommandPermissionLevel;
-    internal const string DefaultIpcCommandPermissionLevel = "admin";
-
-    internal static ConfigEntry<bool>? IpcEnable;
-    internal const bool DefaultIpcEnable = true;
-
+    
     internal static ConfigEntry<bool>? UseStaffPrefix;
     internal const bool DefaultUseStaffPrefix = true;
 
@@ -72,6 +61,8 @@ public static class PluginConfig
 
     internal static ConfigEntry<string>? Owner;
     internal const string DefaultOwner = "";
+
+    internal static ConfigEntry<string>? SteamWebApiKey;
 
     internal static List<string> ModeratorsList =>
         Moderators!.Value.Split(';').Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
@@ -115,6 +106,9 @@ public static class PluginConfig
             "The Steam ID of the server owner. This player has access to all commands, and cannot be removed from the admin list.");
         GwServerPlugin.Logger.LogDebug($"Owner: {Owner.Value}");
 
+        SteamWebApiKey = config.Bind(SteamWebApiSection, "Key", "",
+            "Steam Web API key used to look up player persona names. Keep this value private.");
+
         UseStaffPrefix = config.Bind(GeneralSection, "UseStaffPrefix", DefaultUseStaffPrefix,
             "Whether to use staff prefix or not.");
         GwServerPlugin.Logger.LogDebug($"UseStaffPrefix: {UseStaffPrefix.Value}");
@@ -146,21 +140,6 @@ public static class PluginConfig
         }
 
         GwServerPlugin.Logger.LogDebug($"Loaded Broadcast messages");
-
-
-        IpcEnable = config.Bind(IpcSection, "Enable IPC", DefaultIpcEnable);
-        GwServerPlugin.Logger.LogDebug($"IpcPort: {IpcEnable}");
-
-        IpcPort = config.Bind(IpcSection, "Communication Port", DefaultIpcPort);
-        GwServerPlugin.Logger.LogDebug($"IpcPort: {IpcPort}");
-
-        IpcHost = config.Bind(IpcSection, "Communication Host", DefaultIpcHost);
-        GwServerPlugin.Logger.LogDebug($"IpcHost: {IpcHost}");
-
-        IpcCommandPermissionLevel =
-            config.Bind(IpcSection, "Communication Permission Level", DefaultIpcCommandPermissionLevel);
-        GwServerPlugin.Logger.LogDebug($"Communication Permission level: {IpcCommandPermissionLevel}");
-
         GwServerPlugin.Logger.LogDebug("Loaded settings.");
     }
 
@@ -237,9 +216,7 @@ public static class PluginConfig
         switch (level)
         {
             case PermissionLevel.Admin:
-                var adminsList = AdminsList;
-                adminsList.Add(steamId.ToString());
-                Admins!.Value = string.Join(";", adminsList);
+                AddAdmin(steamId);
                 break;
             case PermissionLevel.Moderator:
                 var modsList = ModeratorsList;
@@ -250,6 +227,40 @@ public static class PluginConfig
             case PermissionLevel.Owner:
             default:
                 break;
+        }
+    }
+    
+    private static void AddAdmin(ulong steamId)
+    {
+        var adminsList = AdminsList.ToHashSet();
+        adminsList.Add(steamId.ToString());
+        Admins?.Value = string.Join(";", adminsList);
+    }
+    
+    private static void AddMod(ulong steamId)
+    {
+        var modsList = ModeratorsList.ToHashSet();
+        modsList.Add(steamId.ToString());
+        Moderators!.Value = string.Join(";", modsList);
+    }
+    
+    
+    /// <summary>
+    /// Updates the modlist by adding entries. does never remove any entry.
+    /// </summary>
+    /// <param name="modlist"></param>
+    public static void UpdateModList(permissionBreakdown modlist)
+    {
+        foreach (var steamid in modlist.Admins)
+        {
+            if (AdminsList.Contains(steamid.ToString())) continue;
+            AddAdmin(steamid);
+        }
+        
+        foreach (var steamid in modlist.Mods)
+        {
+            if (ModeratorsList.Contains(steamid.ToString())) continue;
+            AddMod(steamid);
         }
     }
 }

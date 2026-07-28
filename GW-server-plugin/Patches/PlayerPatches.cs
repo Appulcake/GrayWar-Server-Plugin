@@ -1,5 +1,5 @@
-using GW_server_plugin.Enums;
-using GW_server_plugin.Features.IPC.Packets;
+using Com.Graywar.NoServerManager.Proto;
+using GW_server_plugin.Events;
 using HarmonyLib;
 using NuclearOption.Networking;
 
@@ -9,6 +9,7 @@ namespace GW_server_plugin.Patches;
 /// Logs sortie status for players.
 /// </summary>
 [HarmonyPatch(typeof(Player))]
+[HarmonyWrapSafe]
 public class PlayerPatches
 {
     /// <summary>
@@ -20,12 +21,13 @@ public class PlayerPatches
     [HarmonyPatch(nameof(Player.FlyOwnedAirframe))]
     public static void AttachPatch(Player __instance, AircraftDefinition airframe)
     {
-        var packet = new LogEntryPacket
+        var log = new sortieStatus
         {
-            Channel = LogChannel.SortieStatus,
-            LogText = $"1:{__instance.SteamID}:{airframe.unitName}"
+            Start = true,
+            SteamID = __instance.SteamID,
+            PlaneName = airframe.unitName
         };
-        GwServerPlugin.LoggingOutBox.Add(packet);
+        GwServerPlugin.GrpcMgr.Client?.SendSortieChangeAsync(log);
     }
     
     /// <summary>
@@ -37,11 +39,26 @@ public class PlayerPatches
     [HarmonyPatch(nameof(Player.RecoverAirframeInUse))]
     public static void RecoverPatch(Player __instance, AircraftDefinition airframe)
     {
-        var packet = new LogEntryPacket
+        var log = new sortieStatus
         {
-            Channel = LogChannel.SortieStatus,
-            LogText = $"0:{__instance.SteamID}:1"// GetOut:steamID:Success
+            Start = false,
+            SteamID = __instance.SteamID,
+            Killed = false
         };
-        GwServerPlugin.LoggingOutBox.Add(packet);
+        GwServerPlugin.GrpcMgr.Client?.SendSortieChangeAsync(log);
+    }
+    
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(Player.OnStartServer))]
+    private static void JoinMessagePostfix(Player __instance)
+    {
+        PlayerEvents.OnPlayerJoined(__instance);
+    }
+    
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(Player.OnStopServer))]
+    private static void DisconnectedMessagePostfix(Player __instance)
+    {
+        PlayerEvents.OnPlayerLeft(__instance);
     }
 }

@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
-using GW_server_plugin.Features.IPC.Packets;
+using Google.Protobuf.WellKnownTypes;
 using Mirage;
 using NuclearOption.DedicatedServer;
 using NuclearOption.Networking;
@@ -25,7 +25,7 @@ public static class PlayerUtils
     {
         return networkPlayer.Identity?.GetComponent<Player>();
     }
-
+    
     /// <summary>
     ///     Get the Player object from an INetworkPlayer object, if available.
     /// </summary>
@@ -39,6 +39,37 @@ public static class PlayerUtils
     }
 
     /// <summary>
+    /// Gets the name used by this plugin when displaying a connected player.
+    /// </summary>
+    /// <remarks>
+    /// The dedicated server does not receive client names over Mirage. This uses the
+    /// Steam Web API name cached at connection time, rather than Player.GetPlayerName().
+    /// </remarks>
+    public static string GetDisplayName(this Player player)
+    {
+        var name = player.GetLogName();
+
+        if (PluginConfig.UseStaffPrefix?.Value == true && IsStaff(player))
+            return $"{PluginConfig.StaffPrefix!.Value} {name}";
+
+        return GwServerPlugin.PlayerIdentifier.TryGetPlayerId(player, out var id)
+            ? $"[{id}] {name}"
+            : name;
+    }
+
+    /// <summary>
+    /// Gets the plain Steam persona name used in logs and audit records.
+    /// This deliberately omits staff and player-ID display tags.
+    /// </summary>
+    public static string GetLogName(this Player player)
+    {
+        return GwServerPlugin.TryGetConnectedPlayerName(player.SteamID, out var cachedName) &&
+               !string.IsNullOrWhiteSpace(cachedName)
+            ? cachedName
+            : player.SteamID.ToString();
+    }
+    
+    /// <summary>
     ///     Try to find a player by name.
     /// </summary>
     /// <param name="playerName"> The name of the player to find. </param>
@@ -46,7 +77,12 @@ public static class PlayerUtils
     /// <returns></returns>
     public static bool TryFindPlayer(string playerName, out Player? playerObject)
     {
-        playerObject = Globals.AuthenticatedPlayers.FirstOrDefault(p => string.Equals(StripStaffPrefix(StripIdPrefix(p.GetPlayer()?.PlayerName ?? "")), StripStaffPrefix(StripIdPrefix(playerName)), StringComparison.CurrentCultureIgnoreCase))?.GetPlayer();
+        playerObject = null;
+        var normalizedName = StripStaffPrefix(StripIdPrefix(playerName));
+
+        if (GwServerPlugin.TryGetConnectedPlayerSteamId(normalizedName, out var steamId))
+            TryFindPlayerBySteamId(steamId, out playerObject);
+
         if (playerObject == null && ulong.TryParse(playerName, out var playerId))
         {
             ulong? playerSteamId;
@@ -55,11 +91,13 @@ public static class PlayerUtils
                 GwServerPlugin.PlayerIdentifier.GetPlayerById((int)playerId, out playerSteamId);
             }
             else playerSteamId = playerId;
+            
             TryFindPlayerBySteamId(playerSteamId ?? 0ul, out playerObject);
         }
+        
         return playerObject != null;
     }
-
+    
     /// <summary>
     ///     Tries to find a player on the server from his steamID.
     /// </summary>
@@ -69,7 +107,7 @@ public static class PlayerUtils
     public static bool TryFindPlayerBySteamId(ulong steamid, out Player? playerObject)
     {
         playerObject = Globals.AuthenticatedPlayers.FirstOrDefault(p => p.GetPlayer()?.SteamID == steamid)?.GetPlayer();
-        return playerObject != null; 
+        return playerObject != null;
     }
     
     /// <summary>
@@ -81,10 +119,10 @@ public static class PlayerUtils
     {
         if (string.IsNullOrEmpty(playerName))
             return playerName;
-
+        
         var pattern = $@"^{Regex.Escape(PluginConfig.StaffPrefix!.Value)}\s*";
         var cleanName = Regex.Replace(playerName, pattern, "", RegexOptions.IgnoreCase);
-
+        
         return cleanName;
     }
     
@@ -97,9 +135,9 @@ public static class PlayerUtils
     {
         if (string.IsNullOrEmpty(playerName))
             return playerName;
-
+        
         const string pattern = @"^\s*\[(?:[1-9]\d?|1\d\d|20[01])\]\s*";
-
+        
         return Regex.Replace(playerName, pattern, "");
     }
     
@@ -111,22 +149,10 @@ public static class PlayerUtils
     public static bool IsStaff(Player player)
     {
         return !(!PluginConfig.IsAdmin(player.SteamID) &&
-                !PluginConfig.IsOwner(player.SteamID) &&
-                !PluginConfig.IsModerator(player.SteamID));
+                 !PluginConfig.IsOwner(player.SteamID) &&
+                 !PluginConfig.IsModerator(player.SteamID));
     }
-    /// <summary>
-    ///     Apply or remove the staff tag based on player permission level.
-    /// </summary>
-    /// <param name="playerObject"> The Player object. </param>
-    /// <returns></returns>
-    public static void ApplyOrRemoveStaffTag(Player playerObject)
-    {
-        if (!PluginConfig.UseStaffPrefix!.Value || !IsStaff(playerObject)) return;
-        var newName = $"{PluginConfig.StaffPrefix!.Value} {playerObject.PlayerName}";
-        playerObject.PlayerName = newName;
-    }
-
-
+    
     /// <summary>
     /// Counts the staff members in a given list of players.
     /// </summary>
@@ -137,17 +163,6 @@ public static class PlayerUtils
             .Count(networkPlayer =>
                 networkPlayer.TryGetPlayer<Player>(out var player) &&
                 IsStaff(player));
-    }
-
-    /// <summary>
-    /// Applies identification tag to a player.
-    /// </summary>
-    /// <param name="playerObject"> Player to apply the identification tag to.</param>
-    /// <param name="id"> ID to apply to the player. </param>
-    public static void ApplyIdentificationTag(Player playerObject, int id)
-    {
-        var newName = $"[{id}] {playerObject.PlayerName}";
-        playerObject.PlayerName = newName; 
     }
     
     /// <summary>
@@ -168,7 +183,7 @@ public static class PlayerUtils
         
         return PermissionLevel.Everyone;
     }
-
+    
     /// <summary>
     /// Function that kicks a player.
     /// </summary>
@@ -177,37 +192,66 @@ public static class PlayerUtils
     public static void KickPlayer(Player player, string reason)
     {
         Globals.NetworkManagerNuclearOptionInstance.KickPlayerAsync(player, reason).Forget();
-        var kickLogPacket = new LogEntryPacket
+        var log = new KickLog
         {
-            LogText = $"1:{player.SteamID}:{reason}",
-            Channel = LogChannel.Kick
+            Reason = reason,
+            SteamID = player.SteamID,
+            Time = DateTime.UtcNow.ToTimestamp()
         };
-        GwServerPlugin.LoggingOutBox.Add(kickLogPacket);
+        GwServerPlugin.GrpcMgr.Client?.SendKickAsync(log);
     }
-
+    
     /// <summary>
     /// Bans a player from a steamID.
     /// </summary>
-    /// <param name="banSteamID"></param>
-    /// <param name="reason"></param>
-    /// <param name="duration"></param>
-    public static void BanPlayer(ulong banSteamID, string reason, string? duration)
+    /// <param name="banSteamID">banned player's SteamID</param>
+    /// <param name="reason">ban reason</param>
+    /// <param name="duration">Ban duration, as format xh or xd</param>
+    /// <param name="log">if true, this will enable logging the ban back to the central service.</param>
+    public static void BanPlayer(ulong banSteamID, string reason, string? duration, bool log = true)
     {
         AllowBanList.BanAndAppendId(
             Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList,
             Globals.DedicatedServerManagerInstance.Config.BanListPaths[0],
             new CSteamID(banSteamID),
             reason
-        ); 
+        );
         
-        var banLogPacket = new LogEntryPacket
+        if (!log) return;
+        
+        var now = DateTime.UtcNow;
+        
+        var banLog = new BanRequest
         {
-            LogText = $"1:{banSteamID}:{duration ?? ""}:{reason}",
-            Channel = LogChannel.Ban
+            Reason = reason,
+            SteamID = banSteamID,
+            BanStart = now.ToTimestamp(),
+            ShouldBeBanned = true
         };
-        GwServerPlugin.LoggingOutBox.Add(banLogPacket);
+        
+        if (duration != null)
+        {
+            string? amountStr = null;
+            try
+            {
+                amountStr = duration.Substring(0, duration.Length - 1);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+            }
+            
+            if (amountStr != null && uint.TryParse(amountStr, out var amount))
+            {
+                if (duration.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+                    banLog.BanEnd = now.AddDays(amount).ToTimestamp();
+                if (duration.EndsWith("h", StringComparison.OrdinalIgnoreCase))
+                    banLog.BanEnd = now.AddHours(amount).ToTimestamp();
+            }
+        }
+        
+        GwServerPlugin.GrpcMgr.Client?.SendBanAsync(banLog);
     }
-
+    
     /// <summary>
     /// Kicks a player asynchronously with reason.
     /// </summary>
@@ -224,11 +268,17 @@ public static class PlayerUtils
         var conn = player.Owner;
         if (addToKickList)
             managerNuclearOption.authenticator.OnKick(conn);
-        var hostName = GameManager.GetLocalPlayer<Player>(out var localPlayer) ? localPlayer.PlayerName : "server";
-        player.KickReason(reason, hostName);
+        player.KickReason(reason);
         await UniTask.Delay(1000); // conservative wait time to account for high-ping ppl.
         conn.Disconnect();
     }
-
-
+    
+    /// <summary>
+    ///     Gets the current player count.
+    /// </summary>
+    /// <returns></returns>
+    public static int GetPlayerCount()
+    {
+        return Globals.AuthenticatedPlayers.Count - 1; // - 1 because server itself counts as a player(?)
+    }
 }

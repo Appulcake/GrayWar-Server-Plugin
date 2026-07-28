@@ -2,8 +2,8 @@
 
 using BepInEx.Configuration;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Enums;
 using GW_server_plugin.Helpers;
+using Com.Graywar.NoServerManager.Proto;
 using NuclearOption.Networking;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands;
@@ -13,7 +13,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 /// </summary>
 /// <param name="config"></param>
 [AutoCommand]
-public class DebugCmd(ConfigFile config): PermissionConfigurableCommand(config), IAsyncGameCommand, IAsyncConsoleCommand
+public class DebugCmd(ConfigFile config): PermissionConfigurableCommand(config), IGameCommand, IConsoleCommand
 {
     /// <inheritdoc />
     public override string Name => "dbg";

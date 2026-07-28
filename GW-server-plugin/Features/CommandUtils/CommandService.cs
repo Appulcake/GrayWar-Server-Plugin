@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using GW_server_plugin.Helpers;
 using NuclearOption.Networking;
@@ -79,8 +80,9 @@ public static class CommandService
     /// </summary>
     /// <param name="commandName"> The name of the command. </param>
     /// <param name="args"> The arguments for the command. </param>
+    /// <param name="level"> Permission level to execute the command as</param>
     /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(string commandName, string[] args)
+    public static async UniTask<(bool success, string? response)> TryExecuteCommand(string commandName, string[] args, PermissionLevel level = PermissionLevel.Everyone)
     {
         if (!TryGetCommand(commandName, out var command))
         {
@@ -91,7 +93,7 @@ public static class CommandService
         {
             return (false, $"{commandName} is not a valid console command."); 
         }
-        return await TryExecuteCommand(consoleCommand, args);
+        return await TryExecuteCommand(consoleCommand, args, level);
     }
 
 
@@ -109,7 +111,7 @@ public static class CommandService
     {
         if (PermissionLevelUtils.GetPlayerPermissionLevel(player) < command.PermissionLevel)
         {
-            GwServerPlugin.Logger.LogWarning($"Player {player.PlayerName} does not have permission to execute command {command.Name}");
+            GwServerPlugin.Logger.LogWarning($"Player {player.GetLogName()} does not have permission to execute command {command.Name}");
             return (false, $"You are not authorized to execute command {command.Name}");
         }
         string? response;
@@ -120,19 +122,19 @@ public static class CommandService
             if (executionResult.success)
             {
                 GwServerPlugin.Logger.LogInfo(
-                    $"Command {command.Name} executed successfully by {player.PlayerName} with argument(s): {string.Join(", ", args)}"
+                    $"Command {command.Name} executed successfully by {player.GetLogName()} with argument(s): {string.Join(", ", args)}"
                 );
                 return (true, response);
             }
 
             GwServerPlugin.Logger.LogWarning(
-                $"Failed to execute command {command.Name} by {player.PlayerName} with argument(s): {string.Join(", ", args)}");
+                $"Failed to execute command {command.Name} by {player.GetLogName()} with argument(s): {string.Join(", ", args)}");
             response ??= $"Failed to execute command {command.Name}";
             return (false, response);
         }
 
         GwServerPlugin.Logger.LogInfo(
-            $"Failed validation for command {command.Name} by {player.PlayerName} with argument(s): {string.Join(", ", args)}");
+            $"Failed validation for command {command.Name} by {player.GetLogName()} with argument(s): {string.Join(", ", args)}");
         response = $"Invalid arguments: {PluginConfig.CommandPrefix!.Value}{command.Usage}";
         return (false, response);
     }
@@ -143,11 +145,10 @@ public static class CommandService
     /// </summary>
     /// <param name="command"> The command to execute. </param>
     /// <param name="args"> The arguments for the command. </param>
+    /// <param name="level"> Permission level to execute the command for</param>
     /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(IConsoleCommand command, string[] args)
+    public static async UniTask<(bool success, string? response)> TryExecuteCommand(IConsoleCommand command, string[] args, PermissionLevel level = PermissionLevel.Everyone)
     {
-        
-        PermissionLevelUtils.TryParsePermissionLevel(PluginConfig.IpcCommandPermissionLevel!.Value, out var level);
         if (level < command.PermissionLevel)
         {
             GwServerPlugin.Logger.LogWarning($"The remote process does not have permission to execute command {command.Name}");
@@ -164,7 +165,7 @@ public static class CommandService
                 GwServerPlugin.Logger.LogInfo(
                     $"Command {command.Name} executed successfully by remote process with argument(s): {string.Join(", ", args)}"
                 );
-                return (true, response);
+                return (true, response ?? $"executed {command.Name} successfully!");
             }
 
             GwServerPlugin.Logger.LogWarning(
