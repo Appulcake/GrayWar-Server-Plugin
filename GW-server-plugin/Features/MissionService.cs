@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
+using GW_server_plugin.Features.Voting;
 using GW_server_plugin.Helpers;
 using GW_server_plugin.Patches;
 using NuclearOption.DedicatedServer;
@@ -146,6 +147,7 @@ public static class MissionService
         Globals.DedicatedServerManagerInstance.missionRotation.GetNext();
     }
     
+    internal const string VoteInhibitionReason = "MissionService is changing mission.";
     
     /// <summary>
     ///     Start a specific mission based on MissionOptions.
@@ -155,19 +157,20 @@ public static class MissionService
     {
         try
         {
+            VoteManager.Inhibit(VoteInhibitionReason);
             if (!missionOptions.Key.TryGetKey(out var key))
             {
                 GwServerPlugin.Logger.LogWarning("Error: could not resolve mission key.");
                 return false;
             }
 
-            if (!MissionSaveLoad.TryLoad(key, out var mission, out var err))
+            if (!MissionSaveLoad.TryLoad(key, out var mission, out var err) || mission == null)
             {
                 GwServerPlugin.Logger.LogWarning($"Load failed: {err}");
                 return false;
             }
 
-            GwServerPlugin.Logger.LogInfo($"Loading next mission: {mission?.Name ?? "<unnamed>"}");
+            GwServerPlugin.Logger.LogInfo($"Loading next mission: {mission.Name ?? "<unnamed>"}");
 
             // Switch to main thread for Unity scene/lobby ops
             await UniTask.SwitchToMainThread();
@@ -188,7 +191,7 @@ public static class MissionService
             dsm.currentMission = mission;
             dsm.currentMissionOption = missionOptions;
             LastMission = mission;
-            MissionChangeDetector.OnMissionChanged(mission);
+            MissionChangeDetector.OnMissionStart(mission);
             return true;
         }
         catch (Exception e)

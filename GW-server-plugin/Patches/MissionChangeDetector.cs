@@ -2,7 +2,6 @@ using System;
 using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using GW_server_plugin.Features;
 using HarmonyLib;
 using NuclearOption.DedicatedServer;
 using NuclearOption.SavedMission;
@@ -24,43 +23,40 @@ public class MissionChangeDetector
     static async UniTask<bool> AwaitResult(Mission mission, UniTask<bool> originalTask)
     {
         bool result = await originalTask;
+        if (!result) return false;
 
-        OnMissionChanged(mission);
+        try
+        {
+            OnMissionStart(mission);
+        }
+        catch (Exception exception)
+        {
+            // Mission reporting is optional and must never make the game server
+            // fail a successfully loaded mission.
+            GwServerPlugin.Logger.LogError($"Failed to report mission change: {exception}");
+        }
 
         return result;
     }
     
     /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="__instance"></param>
-    /// <param name="__result"></param>
-    [HarmonyPatch(nameof(DedicatedServerManager.GameShouldStop))]
-    [HarmonyPostfix]
-    public static void GameShouldStopPatch(DedicatedServerManager __instance, ref bool __result)
-    {
-        if (__result) OnMissionChanged(null);
-    }
-    
-    /// <summary>
-    /// Behaviour to run whenever a mission changes.
+    /// Behaviour to run whenever a mission starts.
     /// </summary>
     /// <param name="mission"></param>
-    internal static void OnMissionChanged(Mission? mission)
+    internal static void OnMissionStart(Mission mission)
     {
-        GwServerPlugin.Logger.LogDebug($"Mission changed: {mission?.Name ?? "null"}");
-        var name = mission?.Name ?? "null";
+        GwServerPlugin.Logger.LogDebug($"Mission changed: {mission.Name}");
+        var name = mission.Name;
         if (ulong.TryParse(name, out var workshopID))
             if (MissionNameFix.GetMissionName(workshopID, out var workshopName))
                 name = workshopName!;
         var log = new missionStatus
         {
             MissionName = name,
+            Ended = false,
             Time = DateTime.UtcNow.ToTimestamp()
         };
         GwServerPlugin.GrpcMgr.Client?.SendMissionChangeAsync(log);
-        if (!RestartService.AwaitingRestart) return;
-        RestartService.Restart();
         
         GwServerPlugin.WarnService.ClearWarns();
     }

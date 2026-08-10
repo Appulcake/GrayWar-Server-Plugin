@@ -12,7 +12,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 /// </summary>
 /// <param name="config"></param>
 [AutoCommand]
-public class LinkmeCommand(ConfigFile config): PermissionConfigurableCommand(config), IGameCommand
+public class LinkmeCommand(ConfigFile config): ConfigurableCommand(config), IGameCommand
 {
 
     private HashSet<int> _usedCodes = []; 
@@ -25,7 +25,7 @@ public class LinkmeCommand(ConfigFile config): PermissionConfigurableCommand(con
     public override string Description => "Use this to link your steam account with your discord in our system";
 
     /// <inheritdoc />
-    public override string Usage => "/linkme (takes no arguments)";
+    public override string Usage => "linkme (takes no arguments)";
 
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args) => UniTask.FromResult(args.Length == 0);
