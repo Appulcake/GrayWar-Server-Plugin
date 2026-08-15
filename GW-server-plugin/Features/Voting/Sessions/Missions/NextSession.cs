@@ -6,7 +6,7 @@ namespace GW_server_plugin.Features.Voting.Sessions.Missions;
 /// <summary>
 ///     Session for voteNext.
 /// </summary>
-[AutoVoteSession("Next Mission", "next")]
+[AutoVoteSession("Queue Next Mission", "queue")]
 public sealed class NextSession(Player initiator, string? reason)
     : CommonMissionSession<NextSession>(initiator, reason)
 {
