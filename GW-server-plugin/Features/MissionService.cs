@@ -76,11 +76,6 @@ public static class MissionService
     public static MissionOptions? GetNextMissionOptions(bool consume = true)
     {
         var dsm = Globals.DedicatedServerManagerInstance;
-        if (dsm == null)
-        {
-            GwServerPlugin.Logger.LogWarning("dsm is null");
-            return null;
-        }
 
         var mr = dsm.missionRotation;
         if (mr == null)
@@ -153,7 +148,7 @@ public static class MissionService
     ///     Start a specific mission based on MissionOptions.
     /// </summary>
     /// <param name="missionOptions">MissionOptions for the mission to start.</param>
-    public static async Task<bool> StartMission(MissionOptions missionOptions)
+    public static async Task<(bool, Mission?)> StartMission(MissionOptions missionOptions)
     {
         try
         {
@@ -161,13 +156,13 @@ public static class MissionService
             if (!missionOptions.Key.TryGetKey(out var key))
             {
                 GwServerPlugin.Logger.LogWarning("Error: could not resolve mission key.");
-                return false;
+                return (false, null);
             }
 
             if (!MissionSaveLoad.TryLoad(key, out var mission, out var err) || mission == null)
             {
                 GwServerPlugin.Logger.LogWarning($"Load failed: {err}");
-                return false;
+                return (false, null);
             }
 
             GwServerPlugin.Logger.LogInfo($"Loading next mission: {mission.Name ?? "<unnamed>"}");
@@ -184,7 +179,7 @@ public static class MissionService
             if (!ok)
             { 
                 GwServerPlugin.Logger.LogError("Failed to load next mission.");
-                return false;
+                return (false, null);
             }
 
             dsm.keyValues.SetKeyValue("start_time", LobbyInstance.CreateStartTime());
@@ -192,23 +187,23 @@ public static class MissionService
             dsm.currentMissionOption = missionOptions;
             LastMission = mission;
             MissionChangeDetector.OnMissionStart(mission);
-            return true;
+            return (true, mission);
         }
         catch (Exception e)
         {
             GwServerPlugin.Logger.LogError(e);
             GwServerPlugin.Logger.LogError("Unexpected error while loading mission.");
-            return false;
+            return (false, null);
         }
     }
     
     /// <summary>
     ///     Starts the next mission in the mission rotation.
     /// </summary>
-    public static async Task<bool> StartNextMission()
+    public static async Task<(bool, Mission?)> StartNextMission()
     {
         var missionOpt = GetNextMissionOptions();
-        if (missionOpt == null) return false;
+        if (missionOpt == null) return (false, null);
         return await StartMission(missionOpt.Value);
     }
 }

@@ -2,7 +2,6 @@ using System;
 using BepInEx.Configuration;
 using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using GW_server_plugin.Patches;
 using NuclearOption.DedicatedServer;
 using NuclearOption.Networking;
 using NuclearOption.Workshop;
@@ -59,8 +58,7 @@ public class AddWorkshopMission(ConfigFile config): ConfigurableCommand(config),
         {
             return (false, $"Failed to download workshop item: {ex.Message}");
         }
-        if (!keySaveable.TryGetKey(out var key)) return (false, $"{keySaveable.Name} is not a valid key");
-        key = MissionNameFix.TranslateWorkshopName(key);
+        if (!keySaveable.TryGetKey(out var key)) return (false, $"{keySaveable.Name} is not a valid workshopID");
 
         MissionService.AddMission(new MissionOptions{Key = keySaveable, MaxTime = 14400f}, save);
         

@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using BepInEx.Configuration;
 using GW_server_plugin.Helpers;
-using GW_server_plugin.Patches;
 using NuclearOption.Networking;
 
 namespace GW_server_plugin.Features.Voting.Sessions.Missions;
@@ -55,8 +54,7 @@ public abstract class CommonMissionSession<TSession>
     {
         var avl = (AcceptableValues as AcceptableValueList<EquatableMissionOptions>)!.AcceptableValues;
         var index = avl.IndexOf(value);
-        if (!value.Options.Key.TryGetKey(out var key)) return value.Options.Key.Name;
-        key = MissionNameFix.TranslateWorkshopName(key);
-        return $"[{index}] {key.Name}";
+        var name = value.Options.Key.TryGetKey(out var key) ? key.Name : value.Options.Key.Name;
+        return $"[{index}] {name}";
     }
 }

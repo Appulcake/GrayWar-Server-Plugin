@@ -22,7 +22,7 @@ public static class WeaponLoggingExtensions
     /// <param name="weaponName"></param>
     // ReSharper disable once ConvertToExtensionBlock
     public static void RecordDamage(
-        this Unit unit,
+        this Unit? unit,
         PersistentID lastDamagedBy,
         float damageAmount,
         string weaponName)
@@ -214,7 +214,7 @@ public static class WeaponLoggingExtensions
 
         if (killedSteamID != null)
         {
-            var sortieEndLog = new sortieStatus
+            var sortieEndLog = new SortieStatus
             {
                 SteamID = killedSteamID.Value,
                 Start = false,
