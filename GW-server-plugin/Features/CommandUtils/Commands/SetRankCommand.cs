@@ -15,7 +15,7 @@ public class SetRankCommand(ConfigFile config): ConfigurableCommand(config), IGa
 {
 
     /// <inheritdoc />
-    public override string Name => "setrank";
+    public override string OutputName => "setrank";
 
     /// <inheritdoc />
     public override string Description => "Set a rank to a player";
@@ -55,5 +55,5 @@ public class SetRankCommand(ConfigFile config): ConfigurableCommand(config), IGa
     }
     
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
 }

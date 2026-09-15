@@ -13,7 +13,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Mission;
 public class SetTimeCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand, IConsoleCommand
 {
     /// <inheritdoc />
-    public override string Name => "settime";
+    public override string OutputName => "settime";
     
     /// <inheritdoc />
     public override string Description => "set the time of day";
@@ -22,7 +22,7 @@ public class SetTimeCommand(ConfigFile config) : ConfigurableCommand(config), IG
     public override string Usage => $"settime <0-24hrs> (e.g '{PluginConfig.CommandPrefixChar}settime 18' for 18:00)";
     
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
 
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args) => Validate(args);

@@ -15,7 +15,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 public class KickCommand(ConfigFile config): ConfigurableCommand(config), IConsoleCommand, IGameCommand
 {
     /// <inheritdoc />
-    public override string Name => "kick";
+    public override string OutputName => "kick";
 
     /// <inheritdoc />
     public override string Description => "Kicks a player from the  server.";
@@ -58,6 +58,6 @@ public class KickCommand(ConfigFile config): ConfigurableCommand(config), IConso
     }
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Moderator;
     
 }

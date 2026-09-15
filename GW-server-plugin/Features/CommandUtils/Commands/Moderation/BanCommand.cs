@@ -16,7 +16,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 public class BanCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand, IConsoleCommand
 {
     /// <inheritdoc />
-    public override string Name => "ban";
+    public override string OutputName => "ban";
     
     /// <inheritdoc />
     public override string Description => "Bans a player from the server.";
@@ -103,5 +103,5 @@ public class BanCommand(ConfigFile config) : ConfigurableCommand(config), IGameC
     }
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Moderator;
 }

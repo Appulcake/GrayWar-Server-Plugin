@@ -13,7 +13,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Utils;
 public class FactionChangeCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand, IConsoleCommand
 {
     /// <inheritdoc />
-    public override string Name => "factionswitch";
+    public override string OutputName => "factionswitch";
 
     /// <inheritdoc />
     public override string Description => "Switch to the other faction after reconnecting.";
@@ -22,7 +22,7 @@ public class FactionChangeCommand(ConfigFile config) : ConfigurableCommand(confi
     public override string Usage => "factionswitch";
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
 
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args) => UniTask.FromResult(args.Length == 0);

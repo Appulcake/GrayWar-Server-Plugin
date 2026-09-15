@@ -12,7 +12,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Utils;
 public class AddSlotCommand(ConfigFile config): ConfigurableCommand(config), IConsoleCommand
 {
     /// <inheritdoc />
-    public override string Name =>  "addslot";
+    public override string OutputName =>  "addslot";
 
     /// <inheritdoc />
     public override string Description => "Adds a slot to the server";
@@ -34,5 +34,5 @@ public class AddSlotCommand(ConfigFile config): ConfigurableCommand(config), ICo
     }
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
 }

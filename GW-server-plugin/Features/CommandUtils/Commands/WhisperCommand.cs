@@ -17,7 +17,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 public class WhisperCommand(ConfigFile config) : ConfigurableCommand(config), IConsoleCommand, IGameCommand
 {
     /// <inheritdoc />
-    public override string Name => "whisper";
+    public override string OutputName => "whisper";
 
     /// <inheritdoc />
     public override string Description => "Send a private message to a specified user.";
@@ -69,5 +69,5 @@ public class WhisperCommand(ConfigFile config) : ConfigurableCommand(config), IC
 
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Everyone;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Everyone;
 }

@@ -14,10 +14,10 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 public class ReportCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand
 {
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Everyone;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Everyone;
     
     /// <inheritdoc />
-    public override string Name => "report";
+    public override string OutputName => "report";
     
     /// <inheritdoc />
     public override string Description => "Reports something to staff";

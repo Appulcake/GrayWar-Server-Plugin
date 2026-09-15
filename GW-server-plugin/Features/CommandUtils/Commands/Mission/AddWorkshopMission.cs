@@ -17,7 +17,7 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Mission;
 public class AddWorkshopMission(ConfigFile config): ConfigurableCommand(config), IConsoleCommand, IGameCommand
 {
     /// <inheritdoc />
-    public override string Name => "addmission";
+    public override string OutputName => "addmission";
 
 
     /// <inheritdoc />
@@ -72,5 +72,5 @@ public class AddWorkshopMission(ConfigFile config): ConfigurableCommand(config),
     public async UniTask<(bool success, string? response)> Execute(Player player, string[] args) => await Execute(args);
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Moderator;
 }

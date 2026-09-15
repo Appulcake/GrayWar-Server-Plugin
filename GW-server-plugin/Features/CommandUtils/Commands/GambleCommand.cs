@@ -14,10 +14,10 @@ namespace GW_server_plugin.Features.CommandUtils.Commands;
 public class GambleCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand
 {
     /// <inheritdoc />
-    public override bool DefaultEnable => false;
+    protected override bool DefaultEnable => false;
     
     /// <inheritdoc />
-    public override string Name => "gamble";
+    public override string OutputName => "gamble";
     
     /// <inheritdoc />
     public override string Description =>
@@ -28,7 +28,7 @@ public class GambleCommand(ConfigFile config) : ConfigurableCommand(config), IGa
         $"gamble <$ in million>. eg: '{PluginConfig.CommandPrefixChar}gamble 100' gambles 100m";
     
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Everyone;
+    protected override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Everyone;
     
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args)

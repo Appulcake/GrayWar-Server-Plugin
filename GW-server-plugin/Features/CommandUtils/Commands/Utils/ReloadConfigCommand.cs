@@ -25,7 +25,7 @@ public class ReloadConfigCommand(ConfigFile config)
         };
 
     /// <inheritdoc />
-    public override string Name => "reload";
+    public override string OutputName => "reload";
 
     /// <inheritdoc />
     public override string Description => "Reload the plugin config, the dedicated server config, or both.";
@@ -34,7 +34,7 @@ public class ReloadConfigCommand(ConfigFile config)
     public override string Usage => "reload <bepinex, server or both (keywords)>";
 
     /// <inheritdoc />
-    public override PermissionLevel DefaultPermissionLevel => PermissionLevel.Admin;
+    protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Admin;
 
     /// <inheritdoc />
     public UniTask<bool> Validate(Player player, string[] args) => Validate(args);
