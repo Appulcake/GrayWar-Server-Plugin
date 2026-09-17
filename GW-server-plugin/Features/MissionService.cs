@@ -179,6 +179,8 @@ public static class MissionService
             if (!ok)
             { 
                 GwServerPlugin.Logger.LogError("Failed to load next mission.");
+                VoteManager.RemoveInhibit(VoteInhibitionReason);
+                dsm.missionRotation.RemoveBrokenMap(missionOptions.Key);
                 return (false, null);
             }
 
