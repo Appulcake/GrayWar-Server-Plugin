@@ -1,9 +1,8 @@
-using System.Linq;
 using BepInEx.Configuration;
-using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using GW_server_plugin.Helpers;
-using NuclearOption.Networking;
+using NuclearOption.ModdingApi;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 
@@ -15,46 +14,38 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 public class KickCommand(ConfigFile config): ConfigurableCommand(config), IConsoleCommand, IGameCommand
 {
     /// <inheritdoc />
-    public override string OutputName => "kick";
+    public override string Name => "GwKick";
 
     /// <inheritdoc />
     public override string Description => "Kicks a player from the  server.";
+    
+    /// <inheritdoc />
+    public override ChatCommandArgument[] Arguments =>
+    [
+        new("player", ChatArgumentType.Player),
+        new("reason", ChatArgumentType.Text, true)
+    ];
 
     /// <inheritdoc />
-    public override string Usage => "kick <player (by name, steamID or ID tag)> <reason>";
-
-    /// <inheritdoc />
-    public UniTask<bool> Validate(Player player, string[] args) => Validate(args);
-
-    /// <inheritdoc />
-    public UniTask<bool> Validate(string[] args)
+    public async UniTask<ChatCommandResult> Execute(ChatCommandRequest request)
     {
-        return UniTask.FromResult(
-            args.Length >= 1 &&
-            (PlayerUtils.TryFindPlayer(args[0], out _) || ulong.TryParse(args[0], out _))
-            );
+        var args = request.Args;
+        if (!request.TryGetTargetPlayer(0, out var target, out var error))
+            return ChatCommandResult.ClientError(error);
+        if (target != request.Sender) return await Execute([.. args]);
+        return ChatCommandResult.ClientError("You cannot kick yourself!");
     }
 
     /// <inheritdoc />
-    public UniTask<(bool success, string? response)> Execute(Player player, string[] args)
+    public UniTask<ChatCommandResult> Execute(string[] args)
     {
         var target = args[0];
-        PlayerUtils.TryFindPlayer(target, out var targetPlayer);
-        if (targetPlayer != player) return Execute(args);
-        return UniTask.FromResult<(bool, string?)>((false, "You cannot kick yourself!"));
-    }
-
-    /// <inheritdoc />
-    public UniTask<(bool success, string? response)> Execute(string[] args)
-    {
-        var target = args[0];
-        if (PlayerUtils.TryFindPlayer(target, out var targetPlayer))
+        if (PlayerUtils.TryFindPlayer(target, out var targetPlayer, out var error))
         {
-            PlayerUtils.KickPlayer(targetPlayer!,  string.Join(" ", args.Skip(1)));
-            return UniTask.FromResult<(bool, string?)>((true, $"{targetPlayer!.GetDisplayName()} has been kicked!"));
+            PlayerUtils.KickPlayer(targetPlayer!.Value.GetInternalPlayer(),  args[1]);
+            return UniTask.FromResult(ChatCommandResult.Ok($"{targetPlayer.Value.Mention} has been kicked!"));
         }
-
-        return UniTask.FromResult<(bool, string?)>((false, $"{target} is not a valid player!"));
+        return UniTask.FromResult(ChatCommandResult.ClientError(error));
     }
 
     /// <inheritdoc />

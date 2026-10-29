@@ -1,5 +1,5 @@
 using System.Linq;
-using NuclearOption.Networking;
+using NuclearOption.ModdingApi;
 using NuclearOption.SavedMission;
 
 namespace GW_server_plugin.Features;
@@ -24,7 +24,7 @@ internal class MissionBalanceService
             {
                 faction.FactionHQ.NetworkpreventJoin = shouldPreventJoin;
 
-                ChatService.SendChatMessageAsServer(
+                ChatUtils.SendChatMessageAsServer(
                     shouldPreventJoin
                         ? $"{faction.factionName} is no longer joinable for balance reasons."
                         : $"{faction.factionName} can be joined again!");
@@ -34,8 +34,9 @@ internal class MissionBalanceService
         }
     }
 
-    internal static void OnPlayerJoin(Player player)
+    internal static void OnPlayerJoin(PlayerHandle handle)
     {
+        var player = handle.GetInternalPlayer();
         var saveData = player.GetAuthData().SaveData;
         if (saveData == null || saveData.Faction == null) return;
         if (player.HQ == saveData.Faction) return;

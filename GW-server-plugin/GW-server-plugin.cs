@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BepInEx;
 using BepInEx.Logging;
 using Com.Graywar.NoServerManager.Proto;
+using Cysharp.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using GW_server_plugin.Events;
 using GW_server_plugin.Features;
@@ -16,7 +17,9 @@ using GW_server_plugin.Features.Voting;
 using GW_server_plugin.Helpers;
 using GW_server_plugin.Patches.KillsLogging;
 using HarmonyLib;
-using JetBrains.Annotations; using NuclearOption.Networking;
+using JetBrains.Annotations;
+using NuclearOption.ModdingApi;
+using NuclearOption.Networking;
 using Steamworks;
 
 namespace GW_server_plugin;
@@ -32,7 +35,6 @@ public class GwServerPlugin : BaseUnityPlugin
     internal static GwServerPlugin Instance { get; private set; } = null!;
     
     internal new static ManualLogSource Logger { get; private set; } = null!;
-    internal static PlayerIdentificationService PlayerIdentifier { get; private set; } = null!;
     
     internal static WeatherRandomizer WeatherRandomizer { get; private set; } = null!;
 
@@ -54,33 +56,8 @@ public class GwServerPlugin : BaseUnityPlugin
     private static bool IsPatched { get; set; }
     
     internal static GrpcClientManager GrpcMgr = null!;
-
-    /// <summary>
-    /// Maps each connected player's SteamID to their current display name.
-    /// </summary>
-    private static readonly Dictionary<ulong, string> ConnectedPlayerNames = [];
-
-    private static readonly object ConnectedPlayerNamesLock = new();
-
-    internal static bool TryGetConnectedPlayerSteamId(string playerName, out ulong steamId)
-    {
-        lock (ConnectedPlayerNamesLock)
-        {
-            var player = ConnectedPlayerNames.FirstOrDefault(pair =>
-                string.Equals(pair.Value, playerName, StringComparison.CurrentCultureIgnoreCase));
-            steamId = player.Key;
-            return player.Key != 0;
-        }
-    }
-
-    internal static bool TryGetConnectedPlayerName(ulong steamId, out string playerName)
-    {
-        lock (ConnectedPlayerNamesLock)
-        {
-            return ConnectedPlayerNames.TryGetValue(steamId, out playerName!);
-        }
-    }
-
+    
+    
     private void Awake()
     {
         Instance = this;
@@ -108,15 +85,6 @@ public class GwServerPlugin : BaseUnityPlugin
         VoteManager.Initialize(Config);
         Logger.LogInfo("Initialized VoteManager");
         
-        try
-        {
-            PlayerIdentifier = new PlayerIdentificationService();
-            Logger.LogInfo("Loaded PlayerID");
-        } catch (Exception e)
-        {
-            Logger.LogDebug($"Failed loading PlayerID with exception {e}");
-        }
-        
         Logger.LogInfo($"Loading {PluginInfo.PLUGIN_NAME} v{PluginInfo.PLUGIN_VERSION}...");
         
         PatchAll();
@@ -128,7 +96,8 @@ public class GwServerPlugin : BaseUnityPlugin
             var commandTypes = assembly.GetTypes()
                 .Where(t => t.IsClass
                             && !t.IsAbstract
-                            && t.IsSubclassOf(typeof(ConfigurableCommand)));
+                            && t.IsSubclassOf(typeof(ConfigurableCommand))
+                            && !Attribute.IsDefined(t, typeof(DynamicCommandAttribute)));
 
             foreach (var type in commandTypes)
             {
@@ -138,8 +107,8 @@ public class GwServerPlugin : BaseUnityPlugin
                     var commandInstance = (ConfigurableCommand)Activator.CreateInstance(type, Config);
                     
                     if (!commandInstance.Enable) continue;
+                    CommandService.RegisterCommand(commandInstance);
                     
-                    CommandService.AddCommand(commandInstance);
                     Logger.LogInfo($"Loaded command {type.Name}");
                 }
                 catch (TargetInvocationException ex)
@@ -155,14 +124,20 @@ public class GwServerPlugin : BaseUnityPlugin
             }
         }
         
-        PlayerEvents.PlayerLeft += OnPlayerLeave;
-        PlayerEvents.PlayerLeft += _ => MissionBalance.CheckAndApplyBalance();
-        PlayerEvents.PlayerJoined += OnPlayerJoin;
-        PlayerEvents.PlayerJoined += MissionBalanceService.OnPlayerJoin;
-        PlayerEvents.PlayerJoined += _ => RestartService.CancelRestart();
         PlayerEvents.PlayerJoinedFaction += OnPlayerJoinFaction;
         PlayerEvents.PlayerJoinedFaction += (_, _) => MissionBalance.CheckAndApplyBalance();
+        
+        PlayerHandle.PlayerJoined += OnHandlePlayerJoin;
+        PlayerHandle.PlayerJoined += PlayerIdentificationService.AddPlayer;
+        PlayerHandle.PlayerJoined += _ => RestartService.CancelRestart();
+        PlayerHandle.PlayerJoined += MissionBalanceService.OnPlayerJoin;
 
+        PlayerHandle.PlayerLeft += LogPlayerLeft;
+        PlayerHandle.PlayerLeft += handle => PlayerIdentificationService.RemovePlayer(handle.PlayerIndex);
+        PlayerHandle.PlayerLeft += _ => MissionBalance.CheckAndApplyBalance();
+        
+        PlayerHandle.PlayersCleared += PlayerIdentificationService.Clear;
+        
         MissionEvents.MissionLoaded += m => MissionBalance.OnMissionLoad(m);
         MissionEvents.MissionLoaded += _ => VoteManager.RemoveInhibit(MissionService.VoteInhibitionReason);
         
@@ -270,52 +245,44 @@ public class GwServerPlugin : BaseUnityPlugin
         Logger.LogDebug("Unpatched!");
     }
     
-    private static void OnPlayerJoin(Player player)
+    
+    private static void OnHandlePlayerJoin(PlayerHandle handle)
     {
-        if (StaffSlotService.IsSlotStaff(Globals.DedicatedServerManagerInstance.RealPlayerCount()) && !PlayerUtils.IsStaff(player))
+        if (StaffSlotService.IsSlotStaff(Globals.DedicatedServerManagerInstance.RealPlayerCount()) && !PlayerUtils.IsStaff(handle))
         {
             Globals
                 .NetworkManagerNuclearOptionInstance
                 .KickPlayerAsync(
-                    player,
+                    handle.player,
                     $"This slot is reserved for staff. The max capacity is {Globals.DedicatedServerManagerInstance.Config.MaxPlayers}.",
                     false)
                 .Forget();
             return;
         }
+        _ = UpdateNameAndLogJoin(handle.player, DateTime.UtcNow);
         
-        var originalName = player.GetPlayerName().SanitizedName;
-        lock (ConnectedPlayerNamesLock)
-        {
-            ConnectedPlayerNames[player.SteamID] = originalName;
-        }
-        // Assign an ID used by PlayerUtils.GetDisplayName for non-staff players.
-        if (!PlayerUtils.IsStaff(player))
-        {
-            PlayerIdentifier.AssignNewPlayer(player);
-        }
+        var pl = PermissionLevelUtils.GetPlayerPermissionLevel(handle.player);
+        handle.SetPermissionLevel(PermissionLevelUtils.ProtoToShockfrontPermissionLevel(pl));
 
-        _ = UpdateConnectedPlayerNameAsync(player, DateTime.UtcNow);
-        
+        if (PlayerUtils.IsStaff(handle) && PluginConfig.UseStaffTag!.Value)
+            handle.SetServerTag(PluginConfig.StaffTag!.Value);
+
         // Start Autorestart timer only when first player joins
         if (PlayerUtils.GetPlayerCount() == 1)
         {
             RestartService.ResetAutoRestart();
         }
-        
+
     }
 
-    private static void OnPlayerLeave(Player player)
+    private static void LogPlayerLeft(PlayerHandle handle)
     {
+        var player = handle.GetInternalPlayer();
         var logName = player.GetLogName();
-        lock (ConnectedPlayerNamesLock)
-        {
-            ConnectedPlayerNames.Remove(player.SteamID);
-        }
-
+        
         Logger.LogInfo($"{logName} : {player.SteamID} - left the game");
         VoteManager.Session?.RemoveVoter(player);
-        PlayerIdentifier.RemovePlayer(player);
+
         var log = new JoinLeaveLog
         {
             SteamID = player.SteamID,
@@ -328,32 +295,17 @@ public class GwServerPlugin : BaseUnityPlugin
         RestartService.CheckIfNoPlayers();
     }
 
-    private static async Task UpdateConnectedPlayerNameAsync(Player player, DateTime joinedAt)
+    private static async UniTask UpdateNameAndLogJoin(Player player, DateTime joinedAt)
     {
         var steamId = player.SteamID;
-        var username = await SteamWebApi.GetUsernameAsync(steamId).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(username)) return;
+        var playerName = await player.FetchPlayerName();
 
-        var playerIsStillConnected = false;
-        lock (ConnectedPlayerNamesLock)
-        {
-            // Do not re-add a player who left while the web request was pending.
-            if (ConnectedPlayerNames.ContainsKey(steamId))
-            {
-                ConnectedPlayerNames[steamId] = username!;
-                playerIsStillConnected = true;
-            }
-        }
-
-        if (!playerIsStillConnected) return;
-
-        var logName = player.GetLogName();
-        Logger.LogInfo($"{logName} : {steamId} - joined the game");
+        Logger.LogInfo($"{playerName.RawSteamName} : {steamId} - joined the game");
         var log = new JoinLeaveLog
         {
             SteamID = steamId,
             IsOn = true,
-            Name = logName,
+            Name = playerName.RawSteamName,
             Time = joinedAt.ToTimestamp()
         };
         GrpcMgr.Client?.SendPlayerActivityAsync(log);

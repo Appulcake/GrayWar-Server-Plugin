@@ -1,186 +1,238 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using GW_server_plugin.Helpers;
-using NuclearOption.Networking;
+using NuclearOption.Chat;
+using NuclearOption.ModdingApi;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Features.CommandUtils;
 
 /// <summary>
-///     Service for handling commands
+///     Manages all command-related stuff that's not handled in vanilla game.
 /// </summary>
 public static class CommandService
 {
-    private static readonly List<ICommand> Commands = [];
-    
-    /// <summary> 
-    ///     Get all registered commands
-    /// </summary>
-    /// <returns> All registered commands, Read only.</returns>
-    public static IEnumerable<ICommand> GetCommands() => Commands.AsReadOnly();
-
-
-    /// <summary>
-    ///     Get all registered in-game callable commands.
-    /// </summary>
-    /// <returns></returns>
-    public static IEnumerable<IGameCommand> GetGameCommands() => Commands.AsReadOnly().OfType<IGameCommand>();
+    private static readonly HashSet<IConsoleCommand> RegisteredConsoleCommands = [];
     
     /// <summary>
-    ///     Get all registered console commands.
+    ///     Registers a command to the Console and to Builtin chat commands, only if available for either.
     /// </summary>
-    /// <returns></returns>
-    public static IEnumerable<IConsoleCommand> GetConsoleCommands() => Commands.AsReadOnly().OfType<IConsoleCommand>();
-    
-    /// <summary>
-    ///     Add a command
-    /// </summary>
-    /// <param name="command"> The command to add. </param>
-    public static void AddCommand(ICommand command) => Commands.Add(command);
-    
-    
-    /// <summary>
-    ///     Attempt to get a command by name.
-    /// </summary>
-    /// <param name="commandName"> The name of the command. </param>
-    /// <param name="command"> The command, if available. </param>
-    /// <returns>true if a command was found, else false</returns>
-    public static bool TryGetCommand(string commandName, out ICommand command)
+    /// <param name="command"></param>
+    public static void RegisterCommand(ICommand command)
     {
-        foreach (var cmd in Commands)
-        {
-            GwServerPlugin.Logger.LogDebug($"Command {cmd.OutputName}: {cmd.Names}; {cmd.Names.Contains(commandName, StringComparer.OrdinalIgnoreCase)}");
-        }
-        command = Commands.Find(c => c.Names.Contains(commandName, StringComparer.OrdinalIgnoreCase));
-        return command != null;
-    }
-
-    /// <summary>
-    ///     Try to execute a command from name.
-    /// </summary>
-    /// <param name="player"> The player executing the command. </param>
-    /// <param name="commandName"> The name of the command. </param>
-    /// <param name="args"> The arguments for the command. </param>
-    /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(string commandName, string[] args, Player player)
-    {
-        if (!TryGetCommand(commandName, out var command))
-        {
-            GwServerPlugin.Logger.LogWarning($"Failed to execute command '{commandName}': Not found.");
-            return (false, $"Did not find a command called '{commandName}'."); 
-        }
-        if (command is not IGameCommand gameCommand)
-        {
-            return (false, $"{commandName} is not a valid command."); 
-        }
-        return await TryExecuteCommand(gameCommand, args, player);
+        if (command is IConsoleCommand consoleCommand)
+            RegisteredConsoleCommands.Add(consoleCommand);
+        if (command is IGameCommand gameCommand)
+            RegisterBuiltinCommand(gameCommand);
     }
     
     /// <summary>
-    ///     Try to execute a command from name.
-    ///     This is the IPC implementation, it doesn't require a player
+    ///     Unregisters a command from the places it can be registered.
     /// </summary>
-    /// <param name="commandName"> The name of the command. </param>
-    /// <param name="args"> The arguments for the command. </param>
-    /// <param name="level"> Permission level to execute the command as</param>
-    /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(string commandName, string[] args, PermissionLevel level = PermissionLevel.Everyone)
+    /// <param name="command"></param>
+    public static void UnregisterCommand(ICommand command)
     {
-        if (!TryGetCommand(commandName, out var command))
-        {
-            GwServerPlugin.Logger.LogWarning($"Failed to execute command '{commandName}': Not found.");
-            return (false, $"Did not find a command called '{commandName}'."); 
-        }
-        if (command is not IConsoleCommand consoleCommand)
-        {
-            return (false, $"{commandName} is not a valid console command."); 
-        }
-        return await TryExecuteCommand(consoleCommand, args, level);
+        if (command is IConsoleCommand consoleCommand)
+            RegisteredConsoleCommands.Remove(consoleCommand);
+        if (command is IGameCommand gameCommand)
+            ChatCommands.UnregisterServerCommand(gameCommand.Name);
     }
-
-
+    
     /// <summary>
-    ///     Try to execute a command from an <see cref="ICommand"/>.
+    /// 
     /// </summary>
-    /// <param name="command"> The command to execute. </param>
-    /// <param name="args"> The arguments for the command. </param>
-    /// <param name="player"> The player executing the command. </param>
     /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(
-        IGameCommand command,
-        string[] args,
-        Player player)
+    public static IReadOnlyList<IConsoleCommand> GetConsoleCommands() =>
+        RegisteredConsoleCommands.ToList().AsReadOnly();
+    
+    
+    private static void RegisterBuiltinCommand(IGameCommand command)
     {
-        if (PermissionLevelUtils.GetPlayerPermissionLevel(player) < command.PermissionLevel)
+        if (!ChatCommands.RegisterServerCommand(
+                command.Name,
+                command.Description,
+                command.Execute,
+                command.Arguments,
+                PermissionLevelUtils.ProtoToShockfrontPermissionLevel(command.PermissionLevel),
+                command.Aliases
+            ))
+            GwServerPlugin.Logger.LogError("Failed to register server command " + command.Name);
+    }
+    
+    /// <summary>
+    ///     Tries to fetch a console command by name.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="command"></param>
+    /// <returns>true if success</returns>
+    public static bool TryGetConsoleCommand(string name, out IConsoleCommand? command)
+    {
+        try
         {
-            GwServerPlugin.Logger.LogWarning($"Player {player.GetLogName()} does not have permission to execute command {command.OutputName}");
-            return (false, $"You are not authorized to execute command {command.OutputName}");
+            command = RegisteredConsoleCommands.First(c => c.MatchesNameOrAlias(name));
+            return true;
         }
-        string? response;
-        if (await command.Validate(player, args))
+        catch (InvalidOperationException)
         {
-            var executionResult = await command.Execute(player, args);
-            response = executionResult.response;
-            if (executionResult.success)
-            {
-                GwServerPlugin.Logger.LogInfo(
-                    $"Command {command.OutputName} executed successfully by {player.GetLogName()} with argument(s): {string.Join(", ", args)}"
-                );
-                return (true, response);
-            }
-
+            command = null;
+            return false;
+        }
+        catch (Exception)
+        {
+            command = null;
+            return false;
+        }
+    }
+    
+    /// <summary>
+    ///     
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="args"></param>
+    /// <param name="permissionLevel"></param>
+    /// <returns></returns>
+    public static async UniTask<ChatCommandResult> ExecuteConsoleCommand(string name, string[] args,
+        PermissionLevel permissionLevel)
+    {
+        var command = RegisteredConsoleCommands.FirstOrDefault(c => c.MatchesNameOrAlias(name));
+        if (command == null) return ChatCommandResult.ClientError($"No such command: {name}");
+        if (permissionLevel < command.PermissionLevel)
+        {
             GwServerPlugin.Logger.LogWarning(
-                $"Failed to execute command {command.OutputName} by {player.GetLogName()} with argument(s): {string.Join(", ", args)}");
-            response ??= $"Failed to execute command {command.OutputName}";
-            return (false, response);
+                $"Remote user with permission level {permissionLevel.ToString()} tried to execute command {command.Name} (level {command.PermissionLevel.ToString()}");
+            return ChatCommandResult.ClientError(
+                $"You are not authorized to execute command {command.Name}, as it requires the {command.PermissionLevel.ToString()} permission level.");
         }
-
-        GwServerPlugin.Logger.LogInfo(
-            $"Failed validation for command {command.OutputName} by {player.GetLogName()} with argument(s): {string.Join(", ", args)}");
-        response = $"Invalid arguments: {PluginConfig.CommandPrefixChar}{command.Usage}";
-        return (false, response);
+        
+        if (!ValidateConsoleCommandArguments(command, ref args, out var error))
+            return ChatCommandResult.ClientError(error);
+        TrimNullOrEmpty(ref args);
+        
+        var result = await command.Execute(args);
+        result.Message = ChatUtils.ReplaceMentionsWithNames(result.Message);
+        return result;
     }
     
-    /// <summary>
-    ///     Try to execute a command from an <see cref="ICommand"/>.
-    ///     This is the IPC implementation, it doesn't require a player
-    /// </summary>
-    /// <param name="command"> The command to execute. </param>
-    /// <param name="args"> The arguments for the command. </param>
-    /// <param name="level"> Permission level to execute the command for</param>
-    /// <returns></returns>
-    public static async UniTask<(bool success, string? response)> TryExecuteCommand(IConsoleCommand command, string[] args, PermissionLevel level = PermissionLevel.Everyone)
+    
+    private static void TrimNullOrEmpty(ref string[] array)
     {
-        if (level < command.PermissionLevel)
+        var length = array.Length;
+        
+        while (length > 0 && string.IsNullOrEmpty(array[length - 1]))
+            length--;
+        
+        if (length < array.Length)
+            Array.Resize(ref array, length);
+    }
+    
+    
+    private static bool ValidateConsoleCommandArguments(IConsoleCommand command, ref string[] args, out string? error)
+    {
+        var argumentsToParse = new string[args.Length];
+        args.CopyTo(argumentsToParse, 0);
+        error = null;
+        var currentTextArgIndex = 0;
+        args = new string[command.Arguments.Length];
+        
+        foreach (var (argument, i) in command.Arguments.Select((x, i) => (x, i)))
         {
-            GwServerPlugin.Logger.LogWarning($"The remote process does not have permission to execute command {command.OutputName}");
-            return (false, $"You are not authorized to execute command {command.OutputName}");
-        }
-
-        string? response;
-        if (await command.Validate(args))
-        {
-            var executionResult = await command.Execute(args);
-            response = executionResult.response;
-            if (executionResult.success)
+            if (currentTextArgIndex == argumentsToParse.Length)
             {
-                GwServerPlugin.Logger.LogInfo(
-                    $"Command {command.OutputName} executed successfully by remote process with argument(s): {string.Join(", ", args)}"
-                );
-                return (true, response ?? $"executed {command.OutputName} successfully!");
+                if (argument.Optional)
+                    return true;
+                error = "Not enough arguments!";
+                return false;
             }
-
-            GwServerPlugin.Logger.LogWarning(
-                $"Failed to execute command {command.OutputName} by remote process with argument(s): {string.Join(", ", args)}");
-            response ??= $"Failed to execute command {command.OutputName}";
-            return (false, response);
+            
+            var currentArg = argumentsToParse[currentTextArgIndex];
+            
+            switch (argument.Type)
+            {
+                case ChatArgumentType.Choices:
+                    if (argument.Choices.Any(x => x.Equals(
+                            currentArg,
+                            StringComparison.OrdinalIgnoreCase)
+                        ))
+                    {
+                        args[i] = argument.Choices.First(x => x.Equals(
+                            currentArg,
+                            StringComparison.OrdinalIgnoreCase));
+                        currentTextArgIndex++;
+                    }
+                    else if (!argument.Optional)
+                    {
+                        error = $"Invalid choice for {argument.Name}: {argumentsToParse[currentTextArgIndex]}";
+                        return false;
+                    }
+                    
+                    break;
+                case ChatArgumentType.Float:
+                    if (float.TryParse(currentArg, out _))
+                    {
+                        args[i] = currentArg;
+                        currentTextArgIndex++;
+                    }
+                    else if (!argument.Optional)
+                    {
+                        error = $"{currentArg} is not a valid floating point number!";
+                        return false;
+                    }
+                    
+                    break;
+                
+                case ChatArgumentType.Int:
+                    if (int.TryParse(currentArg, out _))
+                    {
+                        args[i] = currentArg;
+                        currentTextArgIndex++;
+                    }
+                    else if (!argument.Optional)
+                    {
+                        error = $"{currentArg} is not a valid floating point number!";
+                        return false;
+                    }
+                    
+                    break;
+                case ChatArgumentType.Player:
+                    if (!ChatHelper.TryParseSteamId(currentArg, out var steamId))
+                    {
+                        if (PlayerUtils.TryGetSteamIdFromName(currentArg, out steamId))
+                            break;
+                        if (int.TryParse(currentArg, out var id) &&
+                            PlayerIdentificationService.TryGetPlayerById(id, out var playerHandle))
+                            steamId = playerHandle!.Value.player.CSteamID;
+                        else
+                        {
+                            if (argument.Optional)
+                                break;
+                            error = $"{currentArg} is not a valid player!";
+                            return false;
+                        }
+                    }
+                    
+                    args[i] = ChatHelper.FormatMention(steamId.m_SteamID);
+                    currentTextArgIndex++;
+                    break;
+                case ChatArgumentType.Text:
+                    if (i == command.Arguments.Length - 1)
+                    {
+                        args[i] += string.Join(" ", argumentsToParse.Skip(currentTextArgIndex));
+                        return true;
+                    }
+                    
+                    args[i] = currentArg;
+                    currentTextArgIndex++;
+                    break;
+                default:
+                case ChatArgumentType.Command:
+                    args[i] = currentArg;
+                    currentTextArgIndex++;
+                    break;
+            }
         }
-
-        GwServerPlugin.Logger.LogWarning(
-            $"Failed validation for command {command.OutputName} by remote process with argument(s): {string.Join(", ", args)}");
-        response = $"Invalid arguments for command {command.OutputName}\n{PluginConfig.CommandPrefixChar}{command.Usage}\nDescription: {command.Description}";
-        return (false, response);
+        
+        return true;
     }
 }

@@ -1,9 +1,8 @@
-using System;
-using System.Collections.Generic;
 using BepInEx.Configuration;
-using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using GW_server_plugin.Helpers;
+using NuclearOption.ModdingApi;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands.Utils;
 
@@ -14,34 +13,23 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Utils;
 [AutoCommand]
 public class ReloadConfigCommand(ConfigFile config) : CommonBehaviourCommand(config)
 {
-    private static readonly HashSet<string> AllowedValues =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "server",
-            "bepinex",
-            "both"
-        };
-
     /// <inheritdoc />
-    public override string OutputName => "reload";
+    public override string Name => "reload";
     
     /// <inheritdoc />
     public override string Description => "Reload the plugin config, the dedicated server config, or both.";
     
     /// <inheritdoc />
-    public override string Usage => "reload <bepinex, server or both (keywords)>";
+    public override ChatCommandArgument[] Arguments =>
+    [
+        ChatCommandArgument.FromChoices("config", ["bepinex", "server", "both"])
+    ];
     
     /// <inheritdoc />
     protected override PermissionLevel DefaultPermissionLevel => PermissionLevel.Admin;
     
     /// <inheritdoc />
-    public override UniTask<bool> Validate(string[] args)
-    {
-        return UniTask.FromResult(args.Length == 1 && AllowedValues.Contains(args[0]));
-    }
-    
-    /// <inheritdoc />
-    public override UniTask<(bool success, string? response)> Execute(string[] args)
+    public override UniTask<ChatCommandResult> Execute(string[] args)
     {
         string? response;
         switch (args[0].ToLowerInvariant())
@@ -61,9 +49,8 @@ public class ReloadConfigCommand(ConfigFile config) : CommonBehaviourCommand(con
                 break;
             default:
                 response = $"Unknown config source '{args[0]}'. Validation was not called correctly.";
-                break;
+                return UniTask.FromResult(ChatCommandResult.ClientError(response));
         }
-        
-        return UniTask.FromResult<(bool, string?)>((true, response));
+        return UniTask.FromResult(ChatCommandResult.Ok(response));
     }
 }

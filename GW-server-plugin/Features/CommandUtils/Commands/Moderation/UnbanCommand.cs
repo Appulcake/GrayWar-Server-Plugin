@@ -1,11 +1,12 @@
 using System;
-using System.Security;
 using BepInEx.Configuration;
 using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using GW_server_plugin.Helpers;
-using Steamworks;
+using NuclearOption.Chat;
+using NuclearOption.ModdingApi;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 
@@ -17,57 +18,39 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 public class UnbanCommand(ConfigFile config) : CommonBehaviourCommand(config)
 {
     /// <inheritdoc />
-    public override string OutputName => "unban";
-
+    public override string Name => "unban";
+    
     /// <inheritdoc />
     public override string Description => "Unbans a player from the server.";
-
-    /// <inheritdoc />
-    public override string Usage => "unban <Player (by name, steamID or playerID)>";
     
     /// <inheritdoc />
-    public override UniTask<bool> Validate(string[] args)
-    {
-        return UniTask.FromResult(args.Length == 1 &&
-                                  (PlayerUtils.TryFindPlayer(args[0], out _) || ulong.TryParse(args[0], out _)));
-    }
+    public override ChatCommandArgument[] Arguments =>
+    [
+        new("player", ChatArgumentType.Player)
+    ];
     
     /// <inheritdoc />
-    public override UniTask<(bool success, string? response)> Execute(string[] args)
+    public override UniTask<ChatCommandResult> Execute(string[] args)
     {
-        string? response;
-        var target = args[0];
-        ulong banSteamID;
-        if (ulong.TryParse(target, out var targetID) &&
-            targetID > (ulong)Globals.DedicatedServerManagerInstance.Config.MaxPlayers)
-        {
-            banSteamID = targetID;
-            response = $"Unbanned player with steamID {banSteamID}";
-        }
-        else
-        {
-            var rs = PlayerUtils.TryFindPlayer(target, out var player);
-            if (!rs)
-                throw new VerificationException(
-                    $"Could not find player {target}: validation was not called properly.");
-            banSteamID = player!.SteamID;
-            response = $"Unbanned player {player.GetDisplayName()}";
-        }
-
+        if (!ChatHelper.TryParseSteamId(args[0], out var banSteamID))
+            return UniTask.FromResult(ChatCommandResult.ClientError($"Invalid SteamID: {args[0]}"));
+        
+        var response = $"Unbanned player with steamID {banSteamID}";
+        
         AllowBanListUtils.UnbanAndRemoveId(
             Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList,
             Globals.DedicatedServerManagerInstance.Config.BanListPaths[0],
-            new CSteamID(banSteamID));
+            banSteamID);
         var log = new BanRequest
         {
-            SteamID = banSteamID,
+            SteamID = banSteamID.m_SteamID,
             BanEnd = DateTime.UtcNow.ToTimestamp(),
             ShouldBeBanned = false
         };
         GwServerPlugin.GrpcMgr.Client?.SendBanAsync(log);
-        return UniTask.FromResult<(bool, string?)>((true, response));
+        return UniTask.FromResult(ChatCommandResult.Ok(response));
     }
-
+    
     /// <inheritdoc />
     protected override PermissionLevel DefaultPermissionLevel { get; } = PermissionLevel.Moderator;
 }

@@ -116,7 +116,7 @@ public abstract class VoteSession<T>(Player initiator, string? reason)
             if (DefaultVote == null)
             {
                 response =
-                    $"cannot vote YES to {SessionName} vote: no default value is set.\nUse {PluginConfig.CommandPrefixChar}vote ? to get available options.";
+                    $"cannot vote YES to {SessionName} vote: no default value is set.\nUse /vote ? to get available options.";
                 return false;
             }
 
@@ -170,7 +170,7 @@ public abstract class VoteSession<T>(Player initiator, string? reason)
     /// <inheritdoc />
     public void Start()
     {
-        ChatService.SendChatMessageAsServer($"Starting {SessionName} vote session!");
+        ChatUtils.SendChatMessageAsServer($"Starting {SessionName} vote session!");
         _timeLeft = VoteTimeoutSeconds;
         _sendReminderMessage();
         TimeEvents.Every30Seconds += OnTimerTick;
@@ -181,22 +181,21 @@ public abstract class VoteSession<T>(Player initiator, string? reason)
     {
         var nTotalVotes = _votes.Count;
 
-        ChatService.SendChatMessageAsServer(
+        ChatUtils.SendChatMessageAsServer(
             $"Final votes: Yes: {NYesVotes}/{AutoPassLimit}\tNo: {NNoVotes}/{AutoPassLimit}");
         if (nTotalVotes >= MinVotesForValidity && (NYesVotes >= AutoPassLimit || NYesVotes > NNoVotes))
         {
             var outcome = GetWinningOutcome();
-            ChatService.SendChatMessageAsServer(
+            ChatUtils.SendChatMessageAsServer(
                 $"{SessionName} vote passed with outcome: {ValueStringGetter(outcome)}!");
             OnPass(outcome);
         }
         else
         {
-            ChatService.SendChatMessageAsServer($"{SessionName} vote failed!");
+            ChatUtils.SendChatMessageAsServer($"{SessionName} vote failed!");
             OnFail();
         }
-
-        Destroy();
+        VoteManager.CancelVote();
     }
 
     /// <summary>
@@ -216,16 +215,16 @@ public abstract class VoteSession<T>(Player initiator, string? reason)
 
     private void _sendReminderMessage()
     {
-        ChatService.SendChatMessageAsServer(
-            $"Type '{PluginConfig.CommandPrefixChar}vote <val>' to vote. (Use '{PluginConfig.CommandPrefixChar}vote ?' to get acceptable values)");
-        ChatService.SendChatMessageAsServer(
+        ChatUtils.SendChatMessageAsServer(
+            $"Type '/vote <val>' to vote. (Use '/vote ?' to get acceptable values)");
+        ChatUtils.SendChatMessageAsServer(
             $"({NYesVotes}/{AutoPassLimit} PASSING votes, {NNoVotes}/{AutoPassLimit} NO votes).");
-        ChatService.SendChatMessageAsServer(_votes.Any()
+        ChatUtils.SendChatMessageAsServer(_votes.Any()
             ? $"Vote expires in {_timeLeft} seconds. {ValueStringGetter(GetWinningOutcome())} is winning."
             : $"Vote expires in {_timeLeft} seconds.");
-        ChatService.SendChatMessageAsServer($"Target: '{SessionName}', initiated by {initiator.GetDisplayName()}");
+        ChatUtils.SendChatMessageAsServer($"Target: '{SessionName}', initiated by {initiator.MentionArg}");
         if (Reason == null) return;
-        ChatService.SendChatMessageAsServer($"Reason: {Reason}");
+        ChatUtils.SendChatMessageAsServer($"Reason: {Reason}");
     }
 
     private void OnTimerTick()

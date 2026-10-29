@@ -1,8 +1,10 @@
 using System;
 using BepInEx.Configuration;
-using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
-using NuclearOption.Networking;
+using GW_server_plugin.Helpers;
+using NuclearOption.Chat;
+using NuclearOption.ModdingApi;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 
@@ -11,32 +13,34 @@ namespace GW_server_plugin.Features.CommandUtils.Commands.Moderation;
 /// </summary>
 /// <param name="config"></param>
 [AutoCommand]
-public class SetPermissionLevelCommand(ConfigFile config) : ConfigurableCommand(config), IGameCommand
+public class SetPermissionLevelCommand(ConfigFile config) : CommonBehaviourCommand(config)
 {
     /// <inheritdoc />
-    public override string OutputName => "setpermissionlevel";
+    public override string Name => "setpermissionlevel";
 
     /// <inheritdoc />
     public override string Description => "Set the permission level of a player.";
+    
+    /// <inheritdoc />
+    public override ChatCommandArgument[] Arguments =>
+    [
+        new("player", ChatArgumentType.Player),
+        ChatCommandArgument.FromChoices("level", Enum.GetNames(typeof(PermissionLevel)))
+    ];
 
     /// <inheritdoc />
-    public override string Usage => "setpermissionlevel <player (by steamID)> <permission_level>";
-
-    /// <inheritdoc />
-    public UniTask<bool> Validate(Player player, string[] args)
+    public override UniTask<ChatCommandResult> Execute(string[] args)
     {
-        return UniTask.FromResult(args.Length == 2 &&
-                                  Enum.TryParse<PermissionLevel>(args[1], out _) && 
-                                  ulong.TryParse(args[0], out _));
-    }
+        if (!Enum.TryParse<PermissionLevel>(args[1], out var level))
+            return UniTask.FromResult(ChatCommandResult.ClientError($"Invalid permission level {args[1]}"));
+        
+        if (!ChatHelper.TryParseSteamId(args[0], out var targetSteamID))
+            return UniTask.FromResult(ChatCommandResult.ClientError($"Invalid User: {args[0]}"));
+        PluginConfig.SetPermissionLevel(targetSteamID.m_SteamID, level);
+        if (PlayerHandle.TryGet(targetSteamID.m_SteamID, out var playerHandle))
+            playerHandle.SetPermissionLevel(PermissionLevelUtils.ProtoToShockfrontPermissionLevel(level));
 
-    /// <inheritdoc />
-    public UniTask<(bool success, string? response)> Execute(Player player, string[] args)
-    {
-        var targetSteamID = ulong.Parse(args[0]);
-        _ = Enum.TryParse<PermissionLevel>(args[1], out var level);
-        PluginConfig.SetPermissionLevel(targetSteamID, level);
-        return UniTask.FromResult<(bool, string?)>((true, $"Successfully set permission level to {level}"));
+        return UniTask.FromResult(ChatCommandResult.Ok($"Successfully set permission level to {level}"));
     }
 
     /// <inheritdoc />

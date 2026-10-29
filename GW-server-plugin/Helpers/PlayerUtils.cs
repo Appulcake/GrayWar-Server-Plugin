@@ -1,14 +1,17 @@
 using System;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BepInEx;
 using Com.Graywar.NoServerManager.Proto;
 using Cysharp.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Mirage;
+using NuclearOption.Chat;
 using NuclearOption.DedicatedServer;
+using NuclearOption.ModdingApi;
 using NuclearOption.Networking;
 using Steamworks;
-using UnityEngine;
+using PermissionLevel = Com.Graywar.NoServerManager.Proto.PermissionLevel;
 
 namespace GW_server_plugin.Helpers;
 
@@ -39,6 +42,28 @@ public static class PlayerUtils
         return playerComponent != null;
     }
     
+    /// <summary>
+    ///     Gets the steamID of a player from the name string.
+    /// </summary>
+    /// <param name="name">name string input</param>
+    /// <param name="steamId">result steamID</param>
+    /// <returns>true if success</returns>
+    public static bool TryGetSteamIdFromName(string name, out CSteamID steamId)
+    {
+        steamId = CSteamID.Nil;
+        try
+        {
+            var tmp = UnitRegistry.cachedPlayerNames
+                .First(pair => pair.Value.RawSteamName.Equals(name, StringComparison.OrdinalIgnoreCase)).Key;
+            steamId = tmp;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+    
     extension(Player player)
     {
         /// <summary>
@@ -52,34 +77,12 @@ public static class PlayerUtils
         {
             var name = player.GetLogName();
             
-            if (PluginConfig.UseStaffPrefix?.Value == true && IsStaff(player))
-                return $"{PluginConfig.StaffPrefix!.Value} {name}";
+            var rt = $"[{player.PlayerIndex}]";
             
-            return GwServerPlugin.PlayerIdentifier.TryGetPlayerId(player, out var id)
-                ? $"[{id}] {name}"
-                : name;
-        }
-        
-        /// <summary>
-        /// Gets the name used by this plugin when displaying a connected player, with the associated faction colour.
-        /// </summary>
-        /// <remarks>
-        /// The dedicated server does not receive client names over Mirage. This uses the
-        /// Steam Web API name cached at connection time, rather than Player.GetPlayerName().
-        /// </remarks>
-        public string GetColoredDisplayName()
-        {
-            var name = player.GetLogName();
+            if (!player.ServerTag.IsNullOrWhiteSpace())
+                rt += $"[{player.ServerTag}]";
             
-            if (TryGetFactionColor(player, out var factionColor))
-                name = $"<color=#{ColorUtility.ToHtmlStringRGB(factionColor)}>{name}</color>";
-            
-            if (PluginConfig.UseStaffPrefix?.Value == true && IsStaff(player))
-                return $"{PluginConfig.StaffPrefix!.Value} {name}";
-            
-            return GwServerPlugin.PlayerIdentifier.TryGetPlayerId(player, out var id)
-                ? $"[{id}] {name}"
-                : name;
+            return rt + name;
         }
         
         /// <summary>
@@ -88,54 +91,73 @@ public static class PlayerUtils
         /// </summary>
         public string GetLogName()
         {
-            return GwServerPlugin.TryGetConnectedPlayerName(player.SteamID, out var cachedName) &&
-                   !string.IsNullOrWhiteSpace(cachedName)
-                ? cachedName
-                : player.SteamID.ToString();
+            return player.GetPlayerNameSteamWeb().RawSteamName;
         }
-    }
-    
-    private static bool TryGetFactionColor(Player player, out Color factionColor)
-    {
-        factionColor = default;
-        var faction = player.HQ?.faction;
-        if (faction == null ||
-            string.Equals(faction.factionName, FactionHelper.NO_FACTION, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(faction.factionName, FactionHelper.NEUTRAL_FACTION, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(faction.factionName, "Spectator", StringComparison.OrdinalIgnoreCase))
-            return false;
         
-        factionColor = faction.color;
-        return true;
+        /// <summary>
+        ///     Get a player's name from the steam web API or the <see cref="UnitRegistry.cachedPlayerNames"/> cache.
+        /// </summary>
+        /// <returns></returns>
+        public PlayerName GetPlayerNameSteamWeb()
+        {
+            if (player._playerNameCache != null)
+                return player._playerNameCache;
+            
+            if (!player.CSteamID.IsValid())
+            {
+                player._playerNameCache = PlayerName.FallbackNoSteamId(string.Empty);
+                return player._playerNameCache;
+            }
+            
+            if (UnitRegistry.cachedPlayerNames.TryGetValue(player.CSteamID, out var cachedName))
+            {
+                player._playerNameCache = cachedName;
+                return player._playerNameCache;
+            }
+            
+            _ = player.FetchPlayerName();
+            return PlayerName.FallbackSteamID(player.CSteamID);
+        }
+        
+        /// <summary>
+        ///     Fetch the PlayerName from steam
+        /// </summary>
+        /// <returns></returns>
+        public async UniTask<PlayerName> FetchPlayerName()
+        {
+            var name = await SteamWebApi.GetUsernameAsync(player.SteamID);
+            var playerName = new PlayerName(name, name);
+            UnitRegistry.cachedPlayerNames[player.CSteamID] = playerName;
+            player._playerNameCache = playerName;
+            return playerName;
+        }
     }
     
     /// <summary>
     ///     Try to find a player by name.
     /// </summary>
-    /// <param name="playerName"> The name of the player to find. </param>
-    /// <param name="playerObject"> The Player object, if available. </param>
+    /// <param name="playerInput"> The steamID or mention of the player to find.</param>
+    /// <param name="player"> The PlayerHandle object, if available. </param>
+    /// <param name="error"> Descriptive error string if failed.</param>
     /// <returns></returns>
-    public static bool TryFindPlayer(string playerName, out Player? playerObject)
+    public static bool TryFindPlayer(string playerInput, out PlayerHandle? player, out string? error)
     {
-        playerObject = null;
-        var normalizedName = StripStaffPrefix(StripIdPrefix(playerName));
-        
-        if (GwServerPlugin.TryGetConnectedPlayerSteamId(normalizedName, out var steamId))
-            TryFindPlayerBySteamId(steamId, out playerObject);
-        
-        if (playerObject == null && ulong.TryParse(playerName, out var playerId))
+        error = null;
+        player = null;
+        if (!ChatHelper.TryParseSteamId(playerInput, out var banSteamID))
         {
-            ulong? playerSteamId;
-            if (playerId <= (ulong)Globals.DedicatedServerManagerInstance.Config.MaxPlayers)
-            {
-                GwServerPlugin.PlayerIdentifier.GetPlayerById((int)playerId, out playerSteamId);
-            }
-            else playerSteamId = playerId;
-            
-            TryFindPlayerBySteamId(playerSteamId ?? 0ul, out playerObject);
+            error = $"{playerInput} is not a valid format.";
+            return false;
         }
         
-        return playerObject != null;
+        if (!PlayerHandle.TryGet(banSteamID.m_SteamID, out var outPlayerHandle))
+        {
+            error = $"{playerInput} is not on the server";
+            return false;
+        }
+        
+        player = outPlayerHandle;
+        return true;
     }
     
     /// <summary>
@@ -148,22 +170,6 @@ public static class PlayerUtils
     {
         playerObject = Globals.AuthenticatedPlayers.FirstOrDefault(p => p.GetPlayer()?.SteamID == steamid)?.GetPlayer();
         return playerObject != null;
-    }
-    
-    /// <summary>
-    ///     Utility function to strip a player name of the staff tag, if they have it.
-    /// </summary>
-    /// <param name="playerName"> The player name. </param>
-    /// <returns>Actual playername.</returns>
-    private static string StripStaffPrefix(string playerName)
-    {
-        if (string.IsNullOrEmpty(playerName))
-            return playerName;
-        
-        var pattern = $@"^{Regex.Escape(PluginConfig.StaffPrefix!.Value)}\s*";
-        var cleanName = Regex.Replace(playerName, pattern, "", RegexOptions.IgnoreCase);
-        
-        return cleanName;
     }
     
     /// <summary>
@@ -180,6 +186,13 @@ public static class PlayerUtils
         
         return Regex.Replace(playerName, pattern, "");
     }
+    
+    /// <summary>
+    ///     Checks if a player is staff.
+    /// </summary>
+    /// <param name="handle"></param>
+    /// <returns></returns>
+    public static bool IsStaff(PlayerHandle handle) => IsStaff(handle.player);
     
     /// <summary>
     /// Checks if a player is staff.
@@ -246,9 +259,9 @@ public static class PlayerUtils
     /// </summary>
     /// <param name="banSteamID">banned player's SteamID</param>
     /// <param name="reason">ban reason</param>
-    /// <param name="duration">Ban duration, as format xh or xd</param>
+    /// <param name="duration">Ban duration</param>
     /// <param name="log">if true, this will enable logging the ban back to the central service.</param>
-    public static void BanPlayer(ulong banSteamID, string reason, string? duration, bool log = true)
+    public static void BanPlayer(ulong banSteamID, string reason, TimeSpan? duration, bool log = true)
     {
         AllowBanList.BanAndAppendId(
             Globals.NetworkManagerNuclearOptionInstance.Authenticator.BanList,
@@ -268,26 +281,8 @@ public static class PlayerUtils
             BanStart = now.ToTimestamp(),
             ShouldBeBanned = true
         };
-        
         if (duration != null)
-        {
-            string? amountStr = null;
-            try
-            {
-                amountStr = duration.Substring(0, duration.Length - 1);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-            }
-            
-            if (amountStr != null && uint.TryParse(amountStr, out var amount))
-            {
-                if (duration.EndsWith("d", StringComparison.OrdinalIgnoreCase))
-                    banLog.BanEnd = now.AddDays(amount).ToTimestamp();
-                if (duration.EndsWith("h", StringComparison.OrdinalIgnoreCase))
-                    banLog.BanEnd = now.AddHours(amount).ToTimestamp();
-            }
-        }
+            banLog.BanEnd = now.Add(duration.Value).ToTimestamp();
         
         GwServerPlugin.GrpcMgr.Client?.SendBanAsync(banLog);
     }
